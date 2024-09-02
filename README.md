@@ -1,4 +1,4 @@
-# FakeCheck 🛡️
+# FakeCheck - Fake News Ranker🛡️
 
 ## Overview 🌟
 
