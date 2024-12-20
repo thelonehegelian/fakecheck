@@ -1,4 +1,5 @@
 import os
+
 # from duckduckgo_search import DDGS
 import getpass
 import logging
@@ -9,8 +10,13 @@ from fastapi import FastAPI
 from langchain_anthropic import ChatAnthropic
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
+
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
 
 load_dotenv()
 
@@ -22,22 +28,27 @@ logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 app = FastAPI()
 
 
-if not os.environ.get("ANTHROPIC_API_KEY"):
-    os.environ["ANTHROPIC_API_KEY"] = getpass.getpass(
-        "Enter API key for Anthropic: ")
+# Add CORS middleware to your FastAPI app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with your actual frontend origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Enter API key for Anthropic: ")
 
 # TODO get model from env
 llm_anthropic = ChatAnthropic(model="claude-3-haiku-20240307")
 
-default_base_prompt = (
-    """ You are a Fake New Detector.
+default_base_prompt = """ You are a Fake New Detector.
  1. Rate this claim on a fake news meter, from 1-5
  2. Explain why it is likely to be Fake
  3. Explain why it is possible that it might be true
  4. Make suggestion for the steps a user should take to further research these claims. Identify specific things they should look for, don't give generic advice. List them from easiest to do to more complex tasks and approximate the time for each task
  YOU MUST MAINTAIN AN IMPARTIAL AND FAIR TONE.
  """
-)
 
 test_news = """Democrats are trying to pass a bill that:
  1 Provides a pathway to citizenship for
@@ -57,11 +68,7 @@ Chad Wol @ChadFWol - Aug 20)
 
 base_prompt = os.environ.get("BASE_PROMPT", default_base_prompt)
 custom_prompt = PromptTemplate(
-    template=(
-        f"{base_prompt}\n\n"
-        "News: {news}\n\n"
-        "Answer:"
-    ),
+    template=(f"{base_prompt}\n\n" "News: {news}\n\n" "Answer:"),
     input_variables=["news"],
 )
 
@@ -79,7 +86,8 @@ class News(BaseModel):
 def check_fake(news: News):
     result = llm_anthropic.invoke(custom_prompt.format(news=news.news))
     print(result.content)
-    return Response(content=result.content, media_type="text/html")
+    return JSONResponse(content=result.content, media_type="text/html")
+    # return Response(content=result.content, media_type="text/html")
 
 
 # This is the web search
