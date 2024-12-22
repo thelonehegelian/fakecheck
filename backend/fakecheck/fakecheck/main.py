@@ -13,10 +13,12 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
+from exa_py import Exa
+from typing import List, Optional
+from datetime import datetime
 
 load_dotenv()
 
@@ -37,13 +39,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.environ["ANTHROPIC_API_KEY"] = getpass.getpass("Enter API key for Anthropic: ")
+anthropic_api_key = os.environ["ANTHROPIC_API_KEY"]
+exa_api_key = os.environ["EXA_API_KEY"]
+exa = Exa(api_key=exa_api_key)
+
 
 # TODO get model from env
-llm_anthropic = ChatAnthropic(model="claude-3-haiku-20240307")
+llm_anthropic = ChatAnthropic(
+    model="claude-3-5-sonnet-latest", api_key=anthropic_api_key
+)
 
-default_base_prompt = """ You are a Fake New Detector.
- 1. Rate this claim on a fake news meter, from 1-5
+default_base_prompt = """ You are a Fake New Detector. USING THE NEWS and the CONTEXT provided
+ 1. Rate the claim on a fake news meter, from 1-5
  2. Explain why it is likely to be Fake
  3. Explain why it is possible that it might be true
  4. Make suggestion for the steps a user should take to further research these claims. Identify specific things they should look for, don't give generic advice. List them from easiest to do to more complex tasks and approximate the time for each task
@@ -68,8 +75,8 @@ Chad Wol @ChadFWol - Aug 20)
 
 base_prompt = os.environ.get("BASE_PROMPT", default_base_prompt)
 custom_prompt = PromptTemplate(
-    template=(f"{base_prompt}\n\n" "News: {news}\n\n" "Answer:"),
-    input_variables=["news"],
+    template=(f"{base_prompt}\n\n" "News: {news}\n\n Context: {context}\n\n" "Answer:"),
+    input_variables=["news", "context"],
 )
 
 
@@ -82,12 +89,56 @@ class News(BaseModel):
     news: str
 
 
+class Result(BaseModel):
+    score: float
+    title: str
+    id: HttpUrl
+    url: HttpUrl
+    publishedDate: datetime
+    author: Optional[str]
+    text: str
+    summary: str
+    image: Optional[HttpUrl]
+    favicon: Optional[HttpUrl]
+
+
+class ExaResponseModel(BaseModel):
+    requestId: str
+    autopromptString: str
+    resolvedSearchType: str
+    results: List[Result]
+
+
+def extract_exa_text(sources: List[Result]):
+    return "\n".join([source.text for source in sources])
+
+
+def extract_exa_sources(sources: List[Result]):
+    return "\n".join([source.url for source in sources])
+
+
 @app.post("/check-fake")
 def check_fake(news: News):
-    result = llm_anthropic.invoke(custom_prompt.format(news=news.news))
-    print(result.content)
-    return JSONResponse(content=result.content, media_type="text/html")
-    # return Response(content=result.content, media_type="text/html")
+    print("Retrieving news from EXA")
+    exa_results: ExaResponseModel = exa.search_and_contents(
+        news.news,
+        type="auto",
+        summary=True,
+        text=True,
+        num_results=5,
+        category="news",
+        exclude_domains=["https://x.com/", "https://twitter.com/"],
+    )
+    exa_text = extract_exa_text(exa_results.results)
+    query_results = exa_text + news.news
+    sources = extract_exa_sources(exa_results.results)
+    llm_response = llm_anthropic.invoke(
+        custom_prompt.format(news=query_results, context=exa_text)
+    )
+    print(sources)
+    test_response = "Testing"
+    # return JSONResponse(content=test_response, media_type="text/html")
+    return JSONResponse(content=llm_response.content, media_type="text/html")
 
 
 # This is the web search

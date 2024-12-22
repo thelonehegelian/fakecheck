@@ -447,6 +447,22 @@ dnspython = ">=2.0.0"
 idna = ">=2.0.0"
 
 [[package]]
+name = "exa-py"
+version = "1.7.0"
+description = "Python SDK for Exa API."
+optional = false
+python-versions = "*"
+files = [
+    {file = "exa_py-1.7.0-py3-none-any.whl", hash = "sha256:01973b4bd1c1d7e7144a4ffd6b8017c6e7674d123bab828c08b48ca41c5dd5ea"},
+    {file = "exa_py-1.7.0.tar.gz", hash = "sha256:8f8a11c537092880608565ec69764f263eb3ddbc124ce9ced48b4d9b76a652c0"},
+]
+
+[package.dependencies]
+openai = ">=1.10.0"
+requests = "*"
+typing-extensions = "*"
+
+[[package]]
 name = "exceptiongroup"
 version = "1.2.2"
 description = "Backport of PEP 654 (exception groups)"
@@ -2803,4 +2819,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "7fbb3057eefaa9f13e53071c1b08fa02efe7820a322c3c94e5c6cb11c42a16d9"
+content-hash = "ea43c5579ec7dd5082c6f5b088ee74c4dace841f0bfa481410e8973358a5d10b"
