@@ -1,25 +1,14 @@
 [project]
 name = "fakecheck"
 version = "0.1.0"
-description = ""
-authors = [
-    { name = "lonehegelian", email = "thelonehegelian@protonmail.com" }
-]
-readme = "README.md"
-requires-python = ">=3.10"
+description = "A fact-checking service with Twitter bot integration"
+requires-python = ">=3.8"
 
 dependencies = [
-    "html2text>=2024.2.26",
-    "ipython>=8.26.0",
-    "fastapi[standard]>=0.115.4",
-    "langchain-openai>=0.2.14",
-    "langchain-anthropic>=0.3.1",
-    "langchain>=0.3.13",
-    "python-dotenv>=1.0.1",
-    "exa-py>=1.7.0",
     "tweepy==4.14.0",
     "python-decouple==3.8",
 ]
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.0.0",
@@ -36,4 +25,4 @@ asyncio_mode = "strict"
 
 [build-system]
 requires = ["hatchling"]
-build-backend = "hatchling.build"
+build-backend = "hatchling.build" 
