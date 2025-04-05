@@ -1,2 +1,4 @@
 backend/fakecheck/fakecheck/__pycache__
 backend/fakecheck/.env
+backend/fakecheck/fakecheck/tests/twitter_bot/__pycache__
+backend/fakecheck/fakecheck/twitter_bot/__pycache__
