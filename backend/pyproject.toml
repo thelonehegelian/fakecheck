@@ -23,6 +23,11 @@ addopts = "--import-mode=importlib"
 pythonpath = ["."]
 asyncio_mode = "strict"
 
+[tool.uv.workspace]
+members = [
+    "fakecheck-v2",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build" 
