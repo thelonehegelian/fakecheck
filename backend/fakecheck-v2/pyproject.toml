@@ -50,6 +50,7 @@ dev = [
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.0.0",
+    "requests>=2.31.0",
 ]
 
 test = [
@@ -66,6 +67,10 @@ Issues = "https://github.com/yourorg/fakecheck-v2/issues"
 
 [project.scripts]
 fakecheck = "main:app"
+test-integration = "scripts.test_runner:run_integration_tests"
+test-fast = "scripts.test_runner:run_fast_tests"
+test-smoke = "scripts.test_runner:run_smoke_tests"
+test-no-ai = "scripts.test_runner:run_no_ai_tests"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

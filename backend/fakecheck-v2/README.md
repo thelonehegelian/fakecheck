@@ -277,23 +277,51 @@ All error responses follow a consistent format:
 
 ## 🧪 Testing
 
-### Running Tests
+### Quick Start with uv Scripts
+
+The easiest way to test the API is using the built-in uv scripts:
+
+```bash
+# 1. Start the server (in one terminal)
+uv run python main.py
+
+# 2. Run tests (in another terminal)
+uv run test-integration   # Full integration tests
+uv run test-fast         # Quick functionality tests  
+uv run test-smoke        # Basic connectivity tests
+uv run test-no-ai        # Tests without AI dependencies
+```
+
+### Manual Testing with pytest
 
 ```bash
 # Install test dependencies
-pip install pytest pytest-asyncio httpx
+uv sync --dev
 
-# Run all tests
-pytest
+# Run all integration tests
+uv run pytest test_integration_live.py
 
-# Run with coverage
-pytest --cov=src
+# Run with verbose output
+uv run pytest test_integration_live.py -v -s
 
 # Run specific test categories
-pytest -m "not slow"  # Skip slow tests
-pytest -m "integration"  # Only integration tests
-pytest -m "unit"  # Only unit tests
+uv run pytest -m "not slow"  # Skip slow tests
+uv run pytest -m "integration"  # Only integration tests
+uv run pytest -m "unit"  # Only unit tests
 ```
+
+### Test Types
+
+| Command | Description | Duration | Requirements |
+|---------|-------------|----------|--------------|
+| `uv run test-smoke` | Basic connectivity | 10-30s* | Server running |
+| `uv run test-no-ai` | All except AI endpoints | 30-60s | Server running |
+| `uv run test-fast` | Core functionality | 2-3 min | Server + API keys |
+| `uv run test-integration` | Complete test suite | 5-10 min | Server + API keys |
+
+*First call may take longer due to AI service initialization
+
+For detailed testing instructions, see [TESTING.md](TESTING.md).
 
 ### Test Categories
 
