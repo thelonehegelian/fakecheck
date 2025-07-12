@@ -22,14 +22,14 @@ fi
 echo "✅ Environment variables are set"
 echo "📦 Installing dependencies..."
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies with uv
+uv sync
 
 echo "🚀 Running tests..."
 echo ""
 
-# Run the tests with verbose output
-pytest test_fake_news_api.py -v -s
+# Run the tests with verbose output using uv
+uv run pytest test_fake_news_api.py -v -s
 
 echo ""
 echo "✨ Test run complete!"

@@ -40,22 +40,39 @@ src/
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.8.1+
+- [uv](https://docs.astral.sh/uv/) - Modern Python package manager
 - API keys for:
   - Anthropic Claude API
   - Perplexity Sonar API
 
 ### Setup
 
-1. **Clone the repository**
+1. **Install uv (if not already installed)**
+```bash
+# macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or via Homebrew
+brew install uv
+
+# Or via pip
+pip install uv
+```
+
+2. **Clone the repository**
 ```bash
 git clone <repository-url>
 cd fakecheck-v2
 ```
 
-2. **Install dependencies**
+3. **Install dependencies**
 ```bash
-pip install -r requirements.txt
+# Install project dependencies and create virtual environment
+uv sync
+
+# For development dependencies
+uv sync --dev
 ```
 
 3. **Set environment variables**
@@ -77,12 +94,39 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 
 4. **Run the application**
 ```bash
-python main.py
+# Run with uv (recommended)
+uv run python main.py
+
+# Or run uvicorn directly
+uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Or with uvicorn:
+### Development with uv
+
+**Common uv commands:**
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Create/update the virtual environment and install dependencies
+uv sync
+
+# Add a new dependency
+uv add package-name
+
+# Add a development dependency
+uv add --dev package-name
+
+# Remove a dependency
+uv remove package-name
+
+# Run scripts in the virtual environment
+uv run python script.py
+uv run pytest
+uv run black .
+uv run mypy src/
+
+# Run tests
+uv run pytest test_fake_news_api.py -v
+# Or use the provided script
+./run_tests.sh
 ```
 
 ## 📊 API Usage
