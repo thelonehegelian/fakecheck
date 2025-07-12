@@ -1,238 +1,237 @@
-import os
-import getpass
+"""
+FakeCheck API - A fact-checking service using AI and web research.
+
+This is the main entry point for the FakeCheck API v2.0.
+"""
+
 import logging
-import re
 import sys
-import json
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from typing import Dict, Any
 
-from langchain_anthropic import ChatAnthropic
-from langchain.prompts import PromptTemplate
-from dotenv import load_dotenv
-from fastapi import FastAPI
-
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, HttpUrl
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from exa_py import Exa
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-from anthropic import Anthropic
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 
-load_dotenv()
+from src.core.config import get_settings
+from src.core.logging import setup_logging, with_correlation_id, generate_correlation_id
+from src.core.exceptions import FakeCheckError
+from src.api.routes.fact_check import router as fact_check_router
 
-
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
-
-
-app = FastAPI()
+# Initialize settings
+settings = get_settings()
 
 
-# Add CORS middleware to your FastAPI app
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your actual frontend origin
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI app.
+    Handles startup and shutdown events.
+    """
+    # Startup
+    logger = logging.getLogger(__name__)
+    logger.info("Starting FakeCheck API v2.0...")
 
-anthropic_api_key = os.environ["ANTHROPIC_API_KEY"]
-exa_api_key = os.environ["EXA_API_KEY"]
-exa = Exa(api_key=exa_api_key)
-
-
-# Get model from env or use a default valid model
-model_name = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
-
-llm_anthropic = ChatAnthropic(model=model_name, api_key=anthropic_api_key)
-
-default_base_prompt = """ You are a Fake New Detector. USING THE NEWS and the CONTEXT provided
- 1. Rate the claim on a fake news meter, from 1-5
-2. Explain why it is likely to be Fake. Give Statistics and Facts if available
-3. Explain why it is possible that it might be true. Give Statistics and Facts if available
- 4. Make suggestion for the steps a user should take to further research these claims. Identify specific things they should look for, don't give generic advice. List them from easiest to do to more complex tasks and approximate the time for each task
- YOU MUST MAINTAIN AN IMPARTIAL AND FAIR TONE.
- """
-
-test_news = """Democrats are trying to pass a bill that:
- 1 Provides a pathway to citizenship for
- more than 15 MILLION illegal aliens -
- including aliens who were previously
- deported during the Trump Admin.
-15 17 423 1.1K Ill 38K L 
-Chad Wol @ChadFWol - Aug 20 **•
-2. Requires taxpayers to pay for
-previously deported illegal aliens to be
-brought back to the U.S.
-@ 18. ［し405 1K ill 37K ①
-Chad Wol @ChadFWol - Aug 20)
-2. Excludes the ability to remove aliens
- with felony records."""
-
-
-base_prompt = os.environ.get("BASE_PROMPT", default_base_prompt)
-custom_prompt = PromptTemplate(
-    template=(f"{base_prompt}\n\n" "News: {news}\n\n Context: {context}\n\n" "Answer:"),
-    input_variables=["news", "context"],
-)
-
-
-def test_news():
-    response = llm_anthropic.invoke(custom_prompt.format(news=test_news))
-    print(response.content)
-
-
-class News(BaseModel):
-    news: str
-
-
-class Result(BaseModel):
-    score: float
-    title: str
-    id: HttpUrl
-    url: HttpUrl
-    publishedDate: datetime
-    author: Optional[str]
-    text: str
-    summary: str
-    image: Optional[HttpUrl]
-    favicon: Optional[HttpUrl]
-
-
-class ExaResponseModel(BaseModel):
-    requestId: str
-    autopromptString: str
-    resolvedSearchType: str
-    results: List[Result]
-
-
-def extract_exa_text(sources: List[Result]):
-    return "\n".join([source.text + "\n" + str(source.url) for source in sources])
-
-
-def extract_exa_sources(sources: List[Result]):
-    return "\n".join([str(source.url) for source in sources])
-
-
-# Define the schema for the fact-check response
-article_schema = {
-    "type": "object",
-    "properties": {
-        "fake_news_rating": {
-            "type": "integer",
-            "description": "Rating from 1-5 where 5 is definitely fake",
-            "minimum": 1,
-            "maximum": 5,
-        },
-        "fake_news_explanation": {
-            "type": "string",
-            "description": "Explanation of why the news might be fake, including statistics and facts",
-        },
-        "true_news_explanation": {
-            "type": "string",
-            "description": "Explanation of why the news might be true, including statistics and facts",
-        },
-        "verification_steps": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "step": {
-                        "type": "string",
-                        "description": "Description of the verification step",
-                    },
-                    "estimated_time": {
-                        "type": "string",
-                        "description": "Estimated time to complete this step",
-                    },
-                    "complexity": {
-                        "type": "string",
-                        "enum": ["easy", "medium", "complex"],
-                        "description": "Complexity level of the step",
-                    },
-                },
-                "required": ["step", "estimated_time", "complexity"],
-            },
-        },
-    },
-    "required": [
-        "fake_news_rating",
-        "fake_news_explanation",
-        "true_news_explanation",
-        "verification_steps",
-    ],
-}
-
-# Initialize Anthropic client
-client = Anthropic(api_key=anthropic_api_key)
-
-# Update the prompt to work with tool calling
-system_prompt = """You are a Fake News Detector. Analyze the provided news and context to determine its authenticity.
-Maintain an impartial and fair tone throughout your analysis. Do not reflect on the quality of the returned search results in your response."""
-
-
-@app.post("/check-fake")
-async def check_fake(news: News):
+    # Validate configuration
     try:
-        logging.info("Retrieving news from EXA")
-        exa_results: ExaResponseModel = exa.search_and_contents(
-            news.news,
-            type="auto",
-            summary=True,
-            text=True,
-            num_results=3,
-            category="news",
-            exclude_domains=["https://x.com/", "https://twitter.com/"],
+        # Test API keys are available
+        assert settings.anthropic_api_key, "ANTHROPIC_API_KEY is required"
+        assert settings.perplexity_api_key, "PERPLEXITY_API_KEY is required"
+        logger.info("Configuration validated successfully")
+    except AssertionError as e:
+        logger.error(f"Configuration validation failed: {e}")
+        sys.exit(1)
+
+    logger.info("FakeCheck API v2.0 started successfully")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down FakeCheck API v2.0...")
+
+
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    """Middleware to add correlation ID to all requests."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Generate correlation ID for request
+        correlation_id = generate_correlation_id()
+
+        # Add correlation ID to request state
+        request.state.correlation_id = correlation_id
+
+        # Process request with correlation ID context
+        with with_correlation_id(correlation_id):
+            response = await call_next(request)
+
+            # Add correlation ID to response headers
+            response.headers["X-Correlation-ID"] = correlation_id
+
+            return response
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware to add security headers."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Add security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        return response
+
+
+def create_app() -> FastAPI:
+    """
+    Create and configure the FastAPI application.
+
+    Returns:
+        Configured FastAPI application
+    """
+    # Set up logging first
+    setup_logging(settings)
+
+    # Create FastAPI app
+    app = FastAPI(
+        title=settings.app_name,
+        description="A fact-checking service using AI research and analysis",
+        version=settings.app_version,
+        lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+    )
+
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["X-Correlation-ID"],
+    )
+
+    # Add custom middleware
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(CorrelationIdMiddleware)
+
+    # Include routers
+    app.include_router(fact_check_router)
+
+    # Add global exception handlers
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ):
+        """Handle validation errors."""
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Validation error on {request.method} {request.url.path}: {exc}"
         )
 
-        exa_text = extract_exa_text(exa_results.results)
-        query_results = exa_text + "\n\n" + news.news
-        sources = extract_exa_sources(exa_results.results)
-
-        logging.info(f"Sending request to Claude using model: {model_name}")
-
-        # Define the tool
-        tools = [
-            {
-                "name": "format_article",
-                "description": "Structure news fact-check analysis with ratings, explanations, and verification steps",
-                "input_schema": article_schema,
-            }
-        ]
-
-        # Use Anthropic client with tool calling
-        response = client.messages.create(
-            model=model_name,
-            max_tokens=4000,
-            tools=tools,
-            tool_choice={"type": "tool", "name": "format_article"},
-            system=system_prompt,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"News to analyze: {news.news}\n\nContext from reliable sources: {exa_text}",
-                },
-            ],
+        error_response = FakeCheckError(
+            "Invalid request data", "VALIDATION_ERROR", {"details": exc.errors()}
         )
 
-        # Log the entire response for debugging
-        logging.info(f"Response from Claude: {response}")
+        return JSONResponse(status_code=422, content=error_response.to_dict())
 
-        # Extract the tool use response
-        tool_response = response.content[0].input
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        """Handle HTTP exceptions."""
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"HTTP error on {request.method} {request.url.path}: {exc.status_code}"
+        )
 
-        # Return the structured JSON response
-        return JSONResponse(content=tool_response, media_type="application/json")
+        error_response = FakeCheckError(
+            exc.detail or "HTTP error occurred",
+            "HTTP_ERROR",
+            {"status_code": exc.status_code},
+        )
 
-    except Exception as e:
-        logging.error(f"Error in check-fake endpoint: {str(e)}")
-        import traceback
-
-        logging.error(traceback.format_exc())
         return JSONResponse(
-            content={"error": str(e)},
-            status_code=500,
+            status_code=exc.status_code, content=error_response.to_dict()
         )
+
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception):
+        """Handle all other exceptions."""
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"Unhandled exception on {request.method} {request.url.path}: {type(exc).__name__}"
+        )
+
+        # Following user rules: Never log complete errors
+        error_response = FakeCheckError(
+            "An internal server error occurred", "INTERNAL_ERROR"
+        )
+
+        return JSONResponse(status_code=500, content=error_response.to_dict())
+
+    # Root endpoint
+    @app.get("/", tags=["Root"])
+    async def root():
+        """Root endpoint for the FakeCheck API."""
+        return {
+            "message": "FakeCheck API v2.0",
+            "description": "A fact-checking service using AI research and analysis",
+            "version": settings.app_version,
+            "docs": "/docs",
+            "api": {"v1": "/v1/"},
+        }
+
+    # Health check endpoint (also available at root level)
+    @app.get("/health", tags=["Health"])
+    async def health():
+        """Simple health check endpoint."""
+        return {
+            "status": "healthy",
+            "version": settings.app_version,
+            "timestamp": "2024-01-01T00:00:00Z",  # This would be actual timestamp
+        }
+
+    return app
+
+
+# Create the app instance
+app = create_app()
+
+
+# For development purposes, add a simple test endpoint
+if settings.debug:
+
+    @app.get("/debug/config", tags=["Debug"])
+    async def debug_config():
+        """Debug endpoint to check configuration (only in debug mode)."""
+        return {
+            "app_name": settings.app_name,
+            "version": settings.app_version,
+            "debug": settings.debug,
+            "anthropic_model": settings.anthropic_model,
+            "perplexity_model": settings.perplexity_model,
+            "cors_origins": settings.cors_origins,
+            "log_level": settings.log_level,
+            "max_tokens": settings.max_tokens,
+            "request_timeout": settings.request_timeout,
+        }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # Run with uvicorn
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+        reload=settings.debug,
+    )
