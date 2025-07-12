@@ -26,7 +26,7 @@ class FactCheckRequest(BaseModel):
     priority: Optional[str] = Field(
         default="normal",
         description="Priority level for processing",
-        regex="^(low|normal|high)$",
+        pattern="^(low|normal|high)$",
     )
 
     @validator("news")
@@ -164,7 +164,7 @@ class ClaimExtractionRequest(BaseModel):
     extract_type: Optional[str] = Field(
         default="factual",
         description="Type of claims to extract",
-        regex="^(factual|opinion|statistical|all)$",
+        pattern="^(factual|opinion|statistical|all)$",
     )
 
     max_claims: Optional[int] = Field(

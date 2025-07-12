@@ -4,7 +4,8 @@ Configuration management for FakeCheck API.
 
 import os
 from typing import List, Optional
-from pydantic import BaseSettings, Field, validator
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -20,15 +21,15 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, description="Server port")
 
     # External API Keys
-    anthropic_api_key: str = Field(..., description="Anthropic API key")
-    perplexity_api_key: str = Field(..., description="Perplexity API key")
+    anthropic_api_key: str = Field(..., description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
+    perplexity_api_key: str = Field(..., description="Perplexity API key", validation_alias="PERPLEXITY_API_KEY")
 
     # Model Configuration
     anthropic_model: str = Field(
-        default="claude-3-5-haiku-latest", description="Anthropic model to use"
+        default="claude-3-5-haiku-latest", description="Anthropic model to use", validation_alias="ANTHROPIC_MODEL"
     )
     perplexity_model: str = Field(
-        default="sonar-pro", description="Perplexity model to use"
+        default="sonar-pro", description="Perplexity model to use", validation_alias="PERPLEXITY_MODEL"
     )
 
     # API Configuration
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
     cors_origins: List[str] = Field(
         default=["http://localhost:3000", "http://localhost:3001"],
         description="Allowed CORS origins",
+        validation_alias="CORS_ORIGINS",
     )
     cors_allow_credentials: bool = Field(
         default=True, description="Allow credentials in CORS"
@@ -58,7 +60,7 @@ class Settings(BaseSettings):
     )
 
     # Custom Prompts
-    base_prompt: Optional[str] = Field(default=None, description="Custom base prompt")
+    base_prompt: Optional[str] = Field(default=None, description="Custom base prompt", validation_alias="BASE_PROMPT")
 
     @validator("cors_origins", pre=True)
     def parse_cors_origins(cls, v):
@@ -115,19 +117,11 @@ YOU MUST MAINTAIN AN IMPARTIAL AND FAIR TONE."""
         """Get the base prompt (custom or default)."""
         return self.base_prompt or self.get_default_base_prompt()
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        # Map environment variables to field names
-        fields = {
-            "anthropic_api_key": {"env": "ANTHROPIC_API_KEY"},
-            "perplexity_api_key": {"env": "PERPLEXITY_API_KEY"},
-            "anthropic_model": {"env": "ANTHROPIC_MODEL"},
-            "perplexity_model": {"env": "PERPLEXITY_MODEL"},
-            "base_prompt": {"env": "BASE_PROMPT"},
-            "cors_origins": {"env": "CORS_ORIGINS"},
-        }
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+    }
 
 
 # Global settings instance

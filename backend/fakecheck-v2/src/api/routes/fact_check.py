@@ -86,8 +86,8 @@ def log_request(request: Request) -> Request:
 )
 async def check_fake_news(
     request: FactCheckRequest,
+    req: Request,
     fact_check_service: FactCheckService = Depends(get_fact_check_service),
-    req: Request = Depends(log_request),
 ):
     """
     Enhanced fact-check news content using AI research and analysis.
@@ -106,6 +106,9 @@ async def check_fake_news(
         Structured fact-checking analysis with enhanced features
     """
     try:
+        # Log request
+        log_request(req)
+        
         # Validate request
         if not request.news or len(request.news.strip()) < 10:
             raise ValidationError("News content must be at least 10 characters long")
@@ -172,8 +175,8 @@ async def check_fake_news(
 )
 async def check_fake_news_batch(
     request: BatchFactCheckRequest,
+    req: Request,
     fact_check_service: FactCheckService = Depends(get_fact_check_service),
-    req: Request = Depends(log_request),
 ):
     """
     Process multiple news items for fact-checking in a single request.
@@ -192,6 +195,9 @@ async def check_fake_news_batch(
         Batch results with summary statistics
     """
     try:
+        # Log request
+        log_request(req)
+        
         # Validate request
         if not request.items or len(request.items) == 0:
             raise ValidationError("At least one news item is required")
@@ -238,8 +244,8 @@ async def check_fake_news_batch(
 )
 async def analyze_source_credibility(
     request: SourceCredibilityRequest,
+    req: Request,
     source_service: SourceCredibilityService = Depends(get_source_credibility_service),
-    req: Request = Depends(log_request),
 ):
     """
     Analyze the credibility of a news source.
@@ -259,6 +265,9 @@ async def analyze_source_credibility(
         Detailed source credibility analysis
     """
     try:
+        # Log request
+        log_request(req)
+        
         # Perform source credibility analysis
         source_credibility = await source_service.analyze_source_credibility(
             source_url=request.source_url,
@@ -345,8 +354,8 @@ async def analyze_source_credibility(
 )
 async def extract_claims(
     request: ClaimExtractionRequest,
+    req: Request,
     claim_service: ClaimExtractionService = Depends(get_claim_extraction_service),
-    req: Request = Depends(log_request),
 ):
     """
     Extract factual claims from text content.
@@ -366,6 +375,9 @@ async def extract_claims(
         List of extracted claims with analysis
     """
     try:
+        # Log request
+        log_request(req)
+        
         # Perform claim extraction
         extracted_claims = await claim_service.extract_claims(
             text=request.text,

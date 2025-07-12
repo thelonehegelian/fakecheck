@@ -13,7 +13,7 @@ class VerificationStep(BaseModel):
     step: str = Field(..., description="Description of the verification step")
     estimated_time: str = Field(..., description="Estimated time to complete this step")
     complexity: str = Field(
-        ..., description="Complexity level of the step", regex="^(easy|medium|complex)$"
+        ..., description="Complexity level of the step", pattern="^(easy|medium|complex)$"
     )
 
     class Config:
@@ -37,12 +37,12 @@ class SourceCredibility(BaseModel):
     bias_rating: Optional[str] = Field(
         default=None,
         description="Political bias rating",
-        regex="^(left|center-left|center|center-right|right|unknown)$",
+        pattern="^(left|center-left|center|center-right|right|unknown)$",
     )
     factual_accuracy: Optional[str] = Field(
         default=None,
         description="Factual accuracy rating",
-        regex="^(very-high|high|mostly-factual|mixed|low|very-low|unknown)$",
+        pattern="^(very-high|high|mostly-factual|mixed|low|very-low|unknown)$",
     )
     transparency_score: Optional[float] = Field(
         default=None, description="Transparency score from 0-100", ge=0, le=100
@@ -68,7 +68,7 @@ class ExtractedClaim(BaseModel):
     claim_type: str = Field(
         ...,
         description="Type of claim",
-        regex="^(factual|opinion|statistical|prediction|other)$",
+        pattern="^(factual|opinion|statistical|prediction|other)$",
     )
     confidence: float = Field(
         ..., description="Confidence in claim extraction", ge=0, le=1
