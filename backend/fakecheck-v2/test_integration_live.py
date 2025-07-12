@@ -386,8 +386,211 @@ class TestFakeCheckAPILive:
 
         print(f"✅ Error response format validated")
 
+    def test_llm_response_quality_fake_news(self, http_client):
+        """Test LLM response quality for obviously fake news."""
+        payload = {
+            "news": "Scientists have discovered that the Earth is actually flat and NASA has been lying to us for decades. All satellite images are computer generated."
+        }
+
+        response = http_client.post("/v1/check-fake", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        self._validate_fact_check_response(data)
+
+        # Should be rated as highly fake
+        assert (
+            data["fake_news_rating"] >= 4
+        ), f"Expected high fake rating, got {data['fake_news_rating']}"
+
+        # Check that explanations contain appropriate content
+        fake_explanation = data["fake_news_explanation"].lower()
+        true_explanation = data["true_news_explanation"].lower()
+
+        # Should mention scientific evidence
+        science_keywords = ["evidence", "scientific", "research", "study", "proof"]
+        has_science_reference = any(
+            keyword in fake_explanation or keyword in true_explanation
+            for keyword in science_keywords
+        )
+        assert has_science_reference, "Should reference scientific evidence"
+
+        # Should have multiple verification steps for complex claims
+        assert (
+            len(data["verification_steps"]) >= 2
+        ), "Complex fake news should have multiple verification steps"
+
+        print(f"✅ LLM quality for fake news - Rating: {data['fake_news_rating']}/5")
+        print(f"   Verification steps: {len(data['verification_steps'])}")
+
+    def test_llm_response_quality_true_news(self, http_client):
+        """Test LLM response quality for obviously true news."""
+        payload = {
+            "news": "Water boils at 100 degrees Celsius at sea level under standard atmospheric pressure of 1 atmosphere."
+        }
+
+        response = http_client.post("/v1/check-fake", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        self._validate_fact_check_response(data)
+
+        # Should be rated as mostly true
+        assert (
+            data["fake_news_rating"] <= 2
+        ), f"Expected low fake rating, got {data['fake_news_rating']}"
+
+        # Check that explanations acknowledge the truth
+        true_explanation = data["true_news_explanation"].lower()
+        positive_keywords = ["correct", "accurate", "true", "factual", "verified"]
+        has_positive_keywords = any(
+            keyword in true_explanation for keyword in positive_keywords
+        )
+        assert (
+            has_positive_keywords
+        ), "True news should have positive validation keywords"
+
+        print(f"✅ LLM quality for true news - Rating: {data['fake_news_rating']}/5")
+
+    def test_llm_response_consistency(self, http_client):
+        """Test that LLM responses are consistent between rating and explanations."""
+        test_cases = [
+            {
+                "news": "The moon landing was staged by Hollywood directors in 1969.",
+                "expected_rating_min": 4,
+                "expected_keywords": ["false", "conspiracy", "debunked", "evidence"],
+            },
+            {
+                "news": "The capital of France is Paris.",
+                "expected_rating_max": 2,
+                "expected_keywords": ["true", "correct", "accurate", "fact"],
+            },
+        ]
+
+        for test_case in test_cases:
+            payload = {"news": test_case["news"]}
+            response = http_client.post("/v1/check-fake", json=payload)
+            assert response.status_code == 200
+
+            data = response.json()
+            self._validate_fact_check_response(data)
+
+            rating = data["fake_news_rating"]
+
+            # Check rating consistency
+            if "expected_rating_min" in test_case:
+                assert (
+                    rating >= test_case["expected_rating_min"]
+                ), f"Rating {rating} too low for fake news"
+            if "expected_rating_max" in test_case:
+                assert (
+                    rating <= test_case["expected_rating_max"]
+                ), f"Rating {rating} too high for true news"
+
+            # Check keyword consistency
+            combined_text = (
+                data["fake_news_explanation"] + " " + data["true_news_explanation"]
+            ).lower()
+            has_expected_keywords = any(
+                keyword in combined_text for keyword in test_case["expected_keywords"]
+            )
+            assert (
+                has_expected_keywords
+            ), f"Missing expected keywords for: {test_case['news'][:50]}..."
+
+            print(
+                f"✅ LLM consistency - Rating: {rating}/5 for '{test_case['news'][:50]}...'"
+            )
+
+    def test_llm_verification_steps_quality(self, http_client):
+        """Test that LLM generates high-quality verification steps."""
+        payload = {
+            "news": "A new study shows that drinking 8 glasses of water daily can prevent all types of cancer and extend life by 20 years."
+        }
+
+        response = http_client.post("/v1/check-fake", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        self._validate_fact_check_response(data)
+
+        verification_steps = data["verification_steps"]
+
+        # Should have multiple steps for complex medical claims
+        assert (
+            len(verification_steps) >= 3
+        ), "Medical claims should have multiple verification steps"
+
+        # Check step quality
+        step_actions = [
+            "check",
+            "verify",
+            "search",
+            "review",
+            "examine",
+            "investigate",
+            "compare",
+            "analyze",
+        ]
+        sources = [
+            "study",
+            "research",
+            "medical",
+            "journal",
+            "expert",
+            "database",
+            "publication",
+            "doctor",
+            "scientist",
+        ]
+
+        has_action_words = False
+        has_source_references = False
+
+        for step in verification_steps:
+            step_text = step["step"].lower()
+
+            # Check for action words
+            if any(action in step_text for action in step_actions):
+                has_action_words = True
+
+            # Check for source references
+            if any(source in step_text for source in sources):
+                has_source_references = True
+
+            # Check time estimates are reasonable
+            estimated_time = step["estimated_time"].lower()
+            if "hour" in estimated_time or "hr" in estimated_time:
+                # Extract number if possible, but at least ensure it's not extreme
+                assert "100" not in estimated_time, "Time estimate too high"
+
+            # Check complexity distribution
+            complexity = step["complexity"]
+            assert complexity in [
+                "easy",
+                "medium",
+                "complex",
+            ], f"Invalid complexity: {complexity}"
+
+        assert has_action_words, "Verification steps should contain action words"
+        assert has_source_references, "Verification steps should reference sources"
+
+        print(
+            f"✅ LLM verification steps quality - {len(verification_steps)} steps generated"
+        )
+        print(
+            f"   Action words: {has_action_words}, Source references: {has_source_references}"
+        )
+
+        # Print sample steps for manual review
+        for i, step in enumerate(verification_steps[:2]):
+            print(f"   Step {i+1}: {step['step'][:80]}...")
+            print(
+                f"   Time: {step['estimated_time']}, Complexity: {step['complexity']}"
+            )
+
     def _validate_fact_check_response(self, data: Dict[str, Any]):
-        """Validate the structure of a fact-check response."""
+        """Validate the structure and content of a fact-check response from LLM."""
         # Required fields
         required_fields = [
             "fake_news_rating",
@@ -401,36 +604,184 @@ class TestFakeCheckAPILive:
         for field in required_fields:
             assert field in data, f"Missing required field: {field}"
 
-        # Validate types and ranges
-        assert isinstance(data["fake_news_rating"], int)
-        assert 1 <= data["fake_news_rating"] <= 5
+        # 1. Validate fake_news_rating
+        assert isinstance(
+            data["fake_news_rating"], int
+        ), "fake_news_rating must be integer"
+        assert (
+            1 <= data["fake_news_rating"] <= 5
+        ), "fake_news_rating must be between 1-5"
 
-        assert isinstance(data["fake_news_explanation"], str)
-        assert len(data["fake_news_explanation"]) > 0
+        # 2. Validate fake_news_explanation (LLM response quality)
+        fake_explanation = data["fake_news_explanation"]
+        assert isinstance(fake_explanation, str), "fake_news_explanation must be string"
+        assert (
+            len(fake_explanation) >= 20
+        ), "fake_news_explanation too short (min 20 chars)"
+        assert (
+            len(fake_explanation) <= 2000
+        ), "fake_news_explanation too long (max 2000 chars)"
 
-        assert isinstance(data["true_news_explanation"], str)
-        assert len(data["true_news_explanation"]) > 0
+        # Check for meaningful content indicators
+        meaningful_indicators = [
+            "because",
+            "due to",
+            "according to",
+            "evidence",
+            "research",
+            "study",
+            "fact",
+            "however",
+            "although",
+            "while",
+            "but",
+            "actually",
+            "contrary",
+            "misleading",
+            "accurate",
+            "inaccurate",
+            "true",
+            "false",
+            "verified",
+            "unverified",
+        ]
+        has_meaningful_content = any(
+            indicator in fake_explanation.lower() for indicator in meaningful_indicators
+        )
+        assert (
+            has_meaningful_content
+        ), "fake_news_explanation lacks meaningful analysis indicators"
 
-        assert isinstance(data["verification_steps"], list)
-        assert len(data["verification_steps"]) > 0
+        # 3. Validate true_news_explanation (LLM response quality)
+        true_explanation = data["true_news_explanation"]
+        assert isinstance(true_explanation, str), "true_news_explanation must be string"
+        assert (
+            len(true_explanation) >= 20
+        ), "true_news_explanation too short (min 20 chars)"
+        assert (
+            len(true_explanation) <= 2000
+        ), "true_news_explanation too long (max 2000 chars)"
 
-        # Validate verification steps structure
-        for step in data["verification_steps"]:
-            assert "step" in step
-            assert "estimated_time" in step
-            assert "complexity" in step
-            assert step["complexity"] in ["easy", "medium", "complex"]
+        # Should be different from fake_explanation
+        assert fake_explanation != true_explanation, "Explanations should be different"
 
-        assert isinstance(data["processing_time_ms"], (int, float))
-        assert data["processing_time_ms"] > 0
+        # Should have meaningful content
+        has_meaningful_content = any(
+            indicator in true_explanation.lower() for indicator in meaningful_indicators
+        )
+        assert (
+            has_meaningful_content
+        ), "true_news_explanation lacks meaningful analysis indicators"
 
-        # Optional fields validation
+        # 4. Validate verification_steps (LLM structured output)
+        verification_steps = data["verification_steps"]
+        assert isinstance(verification_steps, list), "verification_steps must be a list"
+        assert len(verification_steps) > 0, "Must have at least one verification step"
+        assert len(verification_steps) <= 10, "Too many verification steps (max 10)"
+
+        # Validate each verification step structure
+        for i, step in enumerate(verification_steps):
+            assert isinstance(step, dict), f"Verification step {i} must be a dict"
+
+            # Required fields in each step
+            step_required_fields = ["step", "estimated_time", "complexity"]
+            for field in step_required_fields:
+                assert (
+                    field in step
+                ), f"Missing field '{field}' in verification step {i}"
+
+            # Validate step description
+            step_desc = step["step"]
+            assert isinstance(
+                step_desc, str
+            ), f"Step description must be string in step {i}"
+            assert len(step_desc) >= 10, f"Step description too short in step {i}"
+            assert len(step_desc) <= 500, f"Step description too long in step {i}"
+
+            # Validate estimated_time format
+            estimated_time = step["estimated_time"]
+            assert isinstance(
+                estimated_time, str
+            ), f"estimated_time must be string in step {i}"
+            time_indicators = ["minute", "hour", "second", "min", "hr", "sec"]
+            has_time_indicator = any(
+                indicator in estimated_time.lower() for indicator in time_indicators
+            )
+            assert (
+                has_time_indicator
+            ), f"estimated_time should include time unit in step {i}"
+
+            # Validate complexity
+            complexity = step["complexity"]
+            assert complexity in [
+                "easy",
+                "medium",
+                "complex",
+            ], f"Invalid complexity '{complexity}' in step {i}"
+
+        # 5. Validate processing_time_ms
+        processing_time = data["processing_time_ms"]
+        assert isinstance(
+            processing_time, (int, float)
+        ), "processing_time_ms must be number"
+        assert processing_time > 0, "processing_time_ms must be positive"
+        assert processing_time < 300000, "processing_time_ms too high (>5 minutes)"
+
+        # 6. Validate timestamp format
+        timestamp = data["timestamp"]
+        assert isinstance(timestamp, str), "timestamp must be string"
+        assert len(timestamp) > 10, "timestamp too short"
+        # Should contain date/time indicators
+        time_indicators = ["T", ":", "-", "Z"]
+        has_time_format = any(indicator in timestamp for indicator in time_indicators)
+        assert has_time_format, "timestamp should be in ISO format"
+
+        # 7. Validate optional fields
         if "confidence_score" in data:
-            assert isinstance(data["confidence_score"], (int, float))
-            assert 0 <= data["confidence_score"] <= 1
+            confidence = data["confidence_score"]
+            assert isinstance(
+                confidence, (int, float)
+            ), "confidence_score must be number"
+            assert 0 <= confidence <= 1, "confidence_score must be between 0-1"
 
         if "citations" in data:
-            assert isinstance(data["citations"], list)
+            citations = data["citations"]
+            assert isinstance(citations, list), "citations must be a list"
+            assert len(citations) <= 20, "Too many citations (max 20)"
+            for i, citation in enumerate(citations):
+                assert isinstance(citation, str), f"Citation {i} must be string"
+                assert len(citation) >= 3, f"Citation {i} too short"
+                assert len(citation) <= 500, f"Citation {i} too long"
+
+        # 8. Validate response coherence (LLM quality check)
+        # Rating should align with explanations
+        if data["fake_news_rating"] >= 4:  # High fake rating
+            fake_keywords = [
+                "false",
+                "incorrect",
+                "misleading",
+                "inaccurate",
+                "fake",
+                "untrue",
+            ]
+            has_fake_keywords = any(
+                keyword in fake_explanation.lower() for keyword in fake_keywords
+            )
+            assert has_fake_keywords, "High fake rating should have corresponding negative keywords in explanation"
+
+        elif data["fake_news_rating"] <= 2:  # Low fake rating (mostly true)
+            true_keywords = [
+                "true",
+                "correct",
+                "accurate",
+                "verified",
+                "factual",
+                "valid",
+            ]
+            has_true_keywords = any(
+                keyword in true_explanation.lower() for keyword in true_keywords
+            )
+            assert has_true_keywords, "Low fake rating should have corresponding positive keywords in explanation"
 
 
 class TestFakeCheckAPIAsync:

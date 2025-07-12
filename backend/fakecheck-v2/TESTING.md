@@ -95,6 +95,9 @@ The server will be available at `http://localhost:8000`
 - ✅ **Custom prompts**: Advanced AI prompting
 - ✅ **Complex content**: Multi-claim news analysis
 - ✅ **Scientific facts**: Known true/false content
+- ✅ **LLM response quality**: Validates AI-generated content structure and quality
+- ✅ **LLM consistency**: Ensures ratings align with explanations
+- ✅ **Verification steps**: Validates structured AI output for fact-checking steps
 - ✅ **Input validation**: Error handling for invalid inputs
 - ✅ **Malformed requests**: JSON parsing errors
 - ✅ **Security headers**: CORS and security policies
@@ -108,6 +111,12 @@ The server will be available at `http://localhost:8000`
 - ✅ **Ranges**: Valid rating ranges (1-5)
 - ✅ **Content**: Non-empty explanations and steps
 - ✅ **Metadata**: Processing time, timestamps, correlation IDs
+- ✅ **LLM Quality**: Validates AI-generated content has meaningful analysis indicators
+- ✅ **Content Length**: Ensures explanations are substantial (20-2000 chars)
+- ✅ **Coherence**: Validates ratings align with explanation keywords
+- ✅ **Verification Steps**: Validates structured AI output with proper fields
+- ✅ **Citations**: Validates optional citation format and content
+- ✅ **Consistency**: Ensures different explanations and logical flow
 
 ## 🐛 Troubleshooting
 

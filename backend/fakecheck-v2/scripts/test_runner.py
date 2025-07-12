@@ -95,6 +95,7 @@ def run_fast_tests() -> int:
         "test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
         "test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
         "test_integration_live.py::TestFakeCheckAPILive::test_basic_fact_check",
+        "test_integration_live.py::TestFakeCheckAPILive::test_llm_response_quality_true_news",
         "test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors",
         "test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking",
     ]
