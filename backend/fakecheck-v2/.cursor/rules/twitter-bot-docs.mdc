@@ -1,4 +1,6 @@
-
+---
+alwaysApply: false
+---
 Tutorial
 
 How to create an X bot with v2 of the X API
