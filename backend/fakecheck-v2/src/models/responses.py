@@ -26,8 +26,72 @@ class VerificationStep(BaseModel):
         }
 
 
+class SourceCredibility(BaseModel):
+    """Model for source credibility information."""
+
+    domain: Optional[str] = Field(default=None, description="Source domain")
+    name: Optional[str] = Field(default=None, description="Source name")
+    credibility_score: float = Field(
+        ..., description="Credibility score from 0-100", ge=0, le=100
+    )
+    bias_rating: Optional[str] = Field(
+        default=None,
+        description="Political bias rating",
+        regex="^(left|center-left|center|center-right|right|unknown)$",
+    )
+    factual_accuracy: Optional[str] = Field(
+        default=None,
+        description="Factual accuracy rating",
+        regex="^(very-high|high|mostly-factual|mixed|low|very-low|unknown)$",
+    )
+    transparency_score: Optional[float] = Field(
+        default=None, description="Transparency score from 0-100", ge=0, le=100
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "domain": "bbc.com",
+                "name": "BBC News",
+                "credibility_score": 85.5,
+                "bias_rating": "center-left",
+                "factual_accuracy": "high",
+                "transparency_score": 92.0,
+            }
+        }
+
+
+class ExtractedClaim(BaseModel):
+    """Model for an extracted claim."""
+
+    claim: str = Field(..., description="The extracted claim")
+    claim_type: str = Field(
+        ...,
+        description="Type of claim",
+        regex="^(factual|opinion|statistical|prediction|other)$",
+    )
+    confidence: float = Field(
+        ..., description="Confidence in claim extraction", ge=0, le=1
+    )
+    context: Optional[str] = Field(
+        default=None, description="Context surrounding the claim"
+    )
+    verifiable: bool = Field(..., description="Whether the claim is verifiable")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "claim": "Drinking 8 glasses of water per day is harmful",
+                "claim_type": "factual",
+                "confidence": 0.9,
+                "context": "Scientists have discovered that...",
+                "verifiable": True,
+            }
+        }
+
+
 class FactCheckResponse(BaseModel):
-    """Response model for fact-checking endpoint."""
+    """Enhanced response model for fact-checking endpoint."""
 
     fake_news_rating: int = Field(
         ..., description="Rating from 1-5 where 5 is definitely fake", ge=1, le=5
@@ -47,7 +111,7 @@ class FactCheckResponse(BaseModel):
         ..., description="List of steps to verify the claim"
     )
 
-    # Additional metadata
+    # Enhanced metadata
     citations: Optional[List[str]] = Field(
         default=None, description="List of sources used for fact-checking"
     )
@@ -58,6 +122,23 @@ class FactCheckResponse(BaseModel):
 
     confidence_score: Optional[float] = Field(
         default=None, description="Confidence score of the analysis (0-1)", ge=0, le=1
+    )
+
+    # New Phase 1 fields
+    confidence_interval: Optional[Dict[str, float]] = Field(
+        default=None, description="Confidence interval for the rating"
+    )
+
+    source_analysis: Optional[List[SourceCredibility]] = Field(
+        default=None, description="Analysis of sources mentioned in the content"
+    )
+
+    extracted_claims: Optional[List[ExtractedClaim]] = Field(
+        default=None, description="Key claims extracted from the content"
+    )
+
+    risk_factors: Optional[List[str]] = Field(
+        default=None, description="Risk factors that might indicate misinformation"
     )
 
     timestamp: Optional[datetime] = Field(
@@ -88,6 +169,180 @@ class FactCheckResponse(BaseModel):
                 ],
                 "processing_time_ms": 3500,
                 "confidence_score": 0.85,
+                "confidence_interval": {"lower_bound": 0.75, "upper_bound": 0.95},
+                "source_analysis": [
+                    {
+                        "domain": "who.int",
+                        "name": "World Health Organization",
+                        "credibility_score": 98.5,
+                        "bias_rating": "center",
+                        "factual_accuracy": "very-high",
+                    }
+                ],
+                "extracted_claims": [
+                    {
+                        "claim": "8 glasses of water per day is harmful",
+                        "claim_type": "factual",
+                        "confidence": 0.95,
+                        "verifiable": True,
+                    }
+                ],
+                "risk_factors": [
+                    "Contradicts established medical guidelines",
+                    "Lacks peer-reviewed evidence",
+                ],
+                "timestamp": "2024-01-15T10:30:00Z",
+            }
+        }
+
+
+class BatchFactCheckResponse(BaseModel):
+    """Response model for batch fact-checking endpoint."""
+
+    total_items: int = Field(..., description="Total number of items processed")
+    successful_items: int = Field(
+        ..., description="Number of successfully processed items"
+    )
+    failed_items: int = Field(..., description="Number of failed items")
+
+    results: List[Dict[str, Any]] = Field(
+        ..., description="List of fact-checking results"
+    )
+
+    batch_summary: Dict[str, Any] = Field(
+        ..., description="Summary of batch processing"
+    )
+
+    processing_time_ms: int = Field(
+        ..., description="Total processing time in milliseconds"
+    )
+
+    timestamp: datetime = Field(
+        ..., description="Timestamp when batch processing was completed"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "total_items": 2,
+                "successful_items": 2,
+                "failed_items": 0,
+                "results": [
+                    {
+                        "item_id": 0,
+                        "status": "success",
+                        "result": {
+                            "fake_news_rating": 4,
+                            "fake_news_explanation": "This is a common misconception...",
+                            "confidence_score": 0.85,
+                        },
+                    },
+                    {
+                        "item_id": 1,
+                        "status": "success",
+                        "result": {
+                            "fake_news_rating": 5,
+                            "fake_news_explanation": "This claim has been debunked...",
+                            "confidence_score": 0.92,
+                        },
+                    },
+                ],
+                "batch_summary": {
+                    "average_rating": 4.5,
+                    "average_confidence": 0.885,
+                    "most_common_risk_factors": ["Contradicts scientific consensus"],
+                },
+                "processing_time_ms": 8500,
+                "timestamp": "2024-01-15T10:30:00Z",
+            }
+        }
+
+
+class SourceCredibilityResponse(BaseModel):
+    """Response model for source credibility endpoint."""
+
+    source_info: SourceCredibility = Field(
+        ..., description="Detailed source credibility information"
+    )
+
+    analysis_summary: str = Field(
+        ..., description="Summary of the credibility analysis"
+    )
+
+    recommendations: List[str] = Field(
+        ..., description="Recommendations for using this source"
+    )
+
+    similar_sources: Optional[List[SourceCredibility]] = Field(
+        default=None, description="Similar sources for comparison"
+    )
+
+    timestamp: datetime = Field(
+        ..., description="Timestamp when the analysis was completed"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "source_info": {
+                    "domain": "bbc.com",
+                    "name": "BBC News",
+                    "credibility_score": 85.5,
+                    "bias_rating": "center-left",
+                    "factual_accuracy": "high",
+                },
+                "analysis_summary": "BBC News is a highly credible source with strong factual accuracy and minimal bias.",
+                "recommendations": [
+                    "Excellent for breaking news and international coverage",
+                    "Generally reliable for factual information",
+                    "Consider slight center-left bias in editorial content",
+                ],
+                "timestamp": "2024-01-15T10:30:00Z",
+            }
+        }
+
+
+class ClaimExtractionResponse(BaseModel):
+    """Response model for claim extraction endpoint."""
+
+    extracted_claims: List[ExtractedClaim] = Field(
+        ..., description="List of extracted claims"
+    )
+
+    extraction_summary: Dict[str, Any] = Field(
+        ..., description="Summary of extraction process"
+    )
+
+    processing_time_ms: int = Field(..., description="Processing time in milliseconds")
+
+    timestamp: datetime = Field(
+        ..., description="Timestamp when extraction was completed"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "extracted_claims": [
+                    {
+                        "claim": "Drinking 8 glasses of water per day is harmful",
+                        "claim_type": "factual",
+                        "confidence": 0.95,
+                        "verifiable": True,
+                    },
+                    {
+                        "claim": "The study involved 10,000 participants",
+                        "claim_type": "statistical",
+                        "confidence": 0.88,
+                        "verifiable": True,
+                    },
+                ],
+                "extraction_summary": {
+                    "total_claims_found": 2,
+                    "factual_claims": 1,
+                    "statistical_claims": 1,
+                    "verifiable_claims": 2,
+                },
+                "processing_time_ms": 1200,
                 "timestamp": "2024-01-15T10:30:00Z",
             }
         }

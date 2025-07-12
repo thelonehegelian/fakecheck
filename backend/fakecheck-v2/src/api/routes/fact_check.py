@@ -19,9 +19,19 @@ from src.core.exceptions import (
     RateLimitError,
 )
 from src.services.fact_checker import FactCheckService
-from src.models.requests import FactCheckRequest
+from src.services.source_credibility import SourceCredibilityService
+from src.services.claim_extraction import ClaimExtractionService
+from src.models.requests import (
+    FactCheckRequest,
+    BatchFactCheckRequest,
+    SourceCredibilityRequest,
+    ClaimExtractionRequest,
+)
 from src.models.responses import (
     FactCheckResponse,
+    BatchFactCheckResponse,
+    SourceCredibilityResponse,
+    ClaimExtractionResponse,
     ErrorResponse,
     HealthCheckResponse,
     APIInfoResponse,
@@ -40,9 +50,23 @@ def get_fact_check_service(
     return FactCheckService(settings)
 
 
-async def log_request(request: Request):
-    """Log incoming requests for monitoring."""
-    logger.info(f"Incoming request: {request.method} {request.url.path}")
+def get_source_credibility_service(
+    settings: Settings = Depends(get_settings),
+) -> SourceCredibilityService:
+    """Dependency to get source credibility service."""
+    return SourceCredibilityService(settings)
+
+
+def get_claim_extraction_service(
+    settings: Settings = Depends(get_settings),
+) -> ClaimExtractionService:
+    """Dependency to get claim extraction service."""
+    return ClaimExtractionService(settings)
+
+
+def log_request(request: Request) -> Request:
+    """Log request details."""
+    logger.info(f"Request: {request.method} {request.url.path}")
     return request
 
 
@@ -57,8 +81,8 @@ async def log_request(request: Request):
         500: {"model": ErrorResponse, "description": "Internal server error"},
         502: {"model": ErrorResponse, "description": "External API error"},
     },
-    summary="Fact-check news content",
-    description="Analyze news content for accuracy using AI research and analysis",
+    summary="Enhanced fact-check news content",
+    description="Analyze news content for accuracy using AI research, source credibility analysis, and claim extraction",
 )
 async def check_fake_news(
     request: FactCheckRequest,
@@ -66,25 +90,27 @@ async def check_fake_news(
     req: Request = Depends(log_request),
 ):
     """
-    Fact-check news content using AI research and analysis.
+    Enhanced fact-check news content using AI research and analysis.
 
-    This endpoint:
-    1. Researches the claim using Perplexity Sonar API
-    2. Analyzes the content using Anthropic Claude
-    3. Returns a structured analysis with rating, explanations, and verification steps
+    Phase 1 enhancements include:
+    - Automatic claim extraction from content
+    - Source credibility analysis for URLs found in content
+    - Confidence intervals for analysis results
+    - Risk factor identification
+    - Enhanced response format with additional metadata
 
     Args:
         request: The fact-checking request containing news content
 
     Returns:
-        Structured fact-checking analysis
+        Structured fact-checking analysis with enhanced features
     """
     try:
         # Validate request
         if not request.news or len(request.news.strip()) < 10:
             raise ValidationError("News content must be at least 10 characters long")
 
-        # Perform fact-checking
+        # Perform enhanced fact-checking
         result = await fact_check_service.check_news(request)
 
         # Return successful response
@@ -127,6 +153,265 @@ async def check_fake_news(
         # Following user rules: Never log complete errors
         error_response = FakeCheckError(
             "An unexpected error occurred during processing", "INTERNAL_ERROR"
+        )
+        return JSONResponse(content=error_response.to_dict(), status_code=500)
+
+
+@router.post(
+    "/check-fake/batch",
+    response_model=BatchFactCheckResponse,
+    responses={
+        200: {"description": "Batch fact-checking completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid input"},
+        408: {"model": ErrorResponse, "description": "Request timeout"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+    summary="Batch fact-check multiple news items",
+    description="Process multiple news items simultaneously with enhanced analysis",
+)
+async def check_fake_news_batch(
+    request: BatchFactCheckRequest,
+    fact_check_service: FactCheckService = Depends(get_fact_check_service),
+    req: Request = Depends(log_request),
+):
+    """
+    Process multiple news items for fact-checking in a single request.
+
+    Features:
+    - Process up to 10 news items simultaneously
+    - Parallel or sequential processing options
+    - Batch summary with aggregated statistics
+    - Individual error handling for each item
+    - Enhanced analysis for each item
+
+    Args:
+        request: Batch fact-checking request with multiple items
+
+    Returns:
+        Batch results with summary statistics
+    """
+    try:
+        # Validate request
+        if not request.items or len(request.items) == 0:
+            raise ValidationError("At least one news item is required")
+
+        if len(request.items) > 10:
+            raise ValidationError("Maximum 10 items allowed per batch")
+
+        # Perform batch fact-checking
+        result = await fact_check_service.check_news_batch(request)
+
+        # Return successful response
+        return JSONResponse(
+            content=result,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+
+    except ValidationError as e:
+        logger.warning(f"Batch validation error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=400)
+
+    except ProcessingError as e:
+        logger.error(f"Batch processing error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=500)
+
+    except Exception as e:
+        logger.error(f"Unexpected batch error: {str(e)}")
+        error_response = FakeCheckError(
+            "An unexpected error occurred during batch processing", "BATCH_ERROR"
+        )
+        return JSONResponse(content=error_response.to_dict(), status_code=500)
+
+
+@router.post(
+    "/source-credibility",
+    response_model=SourceCredibilityResponse,
+    responses={
+        200: {"description": "Source credibility analysis completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid input"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+    summary="Analyze source credibility",
+    description="Analyze the credibility and bias of a news source",
+)
+async def analyze_source_credibility(
+    request: SourceCredibilityRequest,
+    source_service: SourceCredibilityService = Depends(get_source_credibility_service),
+    req: Request = Depends(log_request),
+):
+    """
+    Analyze the credibility of a news source.
+
+    Features:
+    - Credibility scoring (0-100 scale)
+    - Political bias detection
+    - Factual accuracy assessment
+    - Transparency scoring
+    - Usage recommendations
+    - Similar source suggestions
+
+    Args:
+        request: Source credibility request with URL, domain, or name
+
+    Returns:
+        Detailed source credibility analysis
+    """
+    try:
+        # Perform source credibility analysis
+        source_credibility = await source_service.analyze_source_credibility(
+            source_url=request.source_url,
+            source_domain=request.source_domain,
+            source_name=request.source_name,
+        )
+
+        # Get recommendations
+        recommendations = await source_service.get_source_recommendations(
+            source_credibility
+        )
+
+        # Find similar sources
+        similar_sources = await source_service.find_similar_sources(source_credibility)
+
+        # Create summary
+        if source_credibility.credibility_score >= 80:
+            summary = f"{source_credibility.name or 'This source'} is highly credible with excellent factual accuracy."
+        elif source_credibility.credibility_score >= 60:
+            summary = f"{source_credibility.name or 'This source'} has good credibility but should be used with some caution."
+        else:
+            summary = f"{source_credibility.name or 'This source'} has limited credibility and requires verification."
+
+        # Build response
+        response_data = {
+            "source_info": {
+                "domain": source_credibility.domain,
+                "name": source_credibility.name,
+                "credibility_score": source_credibility.credibility_score,
+                "bias_rating": source_credibility.bias_rating,
+                "factual_accuracy": source_credibility.factual_accuracy,
+                "transparency_score": source_credibility.transparency_score,
+            },
+            "analysis_summary": summary,
+            "recommendations": recommendations,
+            "similar_sources": [
+                {
+                    "domain": source.domain,
+                    "name": source.name,
+                    "credibility_score": source.credibility_score,
+                    "bias_rating": source.bias_rating,
+                    "factual_accuracy": source.factual_accuracy,
+                }
+                for source in similar_sources
+            ]
+            if similar_sources
+            else None,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        return JSONResponse(
+            content=response_data,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+
+    except ValidationError as e:
+        logger.warning(f"Source credibility validation error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=400)
+
+    except ProcessingError as e:
+        logger.error(f"Source credibility processing error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=500)
+
+    except Exception as e:
+        logger.error(f"Unexpected source credibility error: {str(e)}")
+        error_response = FakeCheckError(
+            "An unexpected error occurred during source analysis",
+            "SOURCE_ANALYSIS_ERROR",
+        )
+        return JSONResponse(content=error_response.to_dict(), status_code=500)
+
+
+@router.post(
+    "/extract-claims",
+    response_model=ClaimExtractionResponse,
+    responses={
+        200: {"description": "Claim extraction completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid input"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+    summary="Extract claims from text",
+    description="Extract and analyze factual claims from news content",
+)
+async def extract_claims(
+    request: ClaimExtractionRequest,
+    claim_service: ClaimExtractionService = Depends(get_claim_extraction_service),
+    req: Request = Depends(log_request),
+):
+    """
+    Extract factual claims from text content.
+
+    Features:
+    - Automatic claim identification
+    - Claim type classification (factual, opinion, statistical, etc.)
+    - Confidence scoring for each claim
+    - Verifiability assessment
+    - Context extraction
+    - Extraction summary with statistics
+
+    Args:
+        request: Claim extraction request with text and parameters
+
+    Returns:
+        List of extracted claims with analysis
+    """
+    try:
+        # Perform claim extraction
+        extracted_claims = await claim_service.extract_claims(
+            text=request.text,
+            extract_type=request.extract_type,
+            max_claims=request.max_claims,
+        )
+
+        # Get extraction summary
+        summary = await claim_service.get_extraction_summary(extracted_claims)
+
+        # Build response
+        response_data = {
+            "extracted_claims": [
+                {
+                    "claim": claim.claim,
+                    "claim_type": claim.claim_type,
+                    "confidence": claim.confidence,
+                    "verifiable": claim.verifiable,
+                    "context": claim.context,
+                }
+                for claim in extracted_claims
+            ],
+            "extraction_summary": summary,
+            "processing_time_ms": 0,  # Would be calculated if needed
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        return JSONResponse(
+            content=response_data,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+
+    except ValidationError as e:
+        logger.warning(f"Claim extraction validation error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=400)
+
+    except ProcessingError as e:
+        logger.error(f"Claim extraction processing error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=500)
+
+    except Exception as e:
+        logger.error(f"Unexpected claim extraction error: {str(e)}")
+        error_response = FakeCheckError(
+            "An unexpected error occurred during claim extraction",
+            "CLAIM_EXTRACTION_ERROR",
         )
         return JSONResponse(content=error_response.to_dict(), status_code=500)
 
@@ -211,10 +496,18 @@ async def get_api_info(
             "name": service_info["name"],
             "version": service_info["version"],
             "description": "A fact-checking service using AI research and analysis",
-            "endpoints": ["/v1/check-fake", "/v1/health", "/v1/info"],
+            "endpoints": [
+                "/v1/check-fake",
+                "/v1/check-fake/batch",
+                "/v1/source-credibility",
+                "/v1/extract-claims",
+                "/v1/health",
+                "/v1/info",
+            ],
             "models": service_info["models"],
             "current_models": service_info["current_models"],
             "limits": service_info["limits"],
+            "features": service_info["features"],
             "rate_limits": {
                 "requests_per_minute": settings.rate_limit_requests,
                 "window_seconds": settings.rate_limit_window,
@@ -235,12 +528,22 @@ async def get_api_info(
 async def api_root():
     """Root endpoint for the fact-checking API v1."""
     return {
-        "message": "FakeCheck API v1",
+        "message": "FakeCheck API v1 - Enhanced with Phase 1 Features",
         "version": "1.0.0",
         "endpoints": {
             "fact_check": "/v1/check-fake",
+            "batch_fact_check": "/v1/check-fake/batch",
+            "source_credibility": "/v1/source-credibility",
+            "extract_claims": "/v1/extract-claims",
             "health": "/v1/health",
             "info": "/v1/info",
         },
         "documentation": "/docs",
+        "phase_1_features": [
+            "Batch processing",
+            "Source credibility analysis",
+            "Claim extraction",
+            "Confidence intervals",
+            "Risk factor identification",
+        ],
     }
