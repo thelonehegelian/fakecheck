@@ -59,32 +59,32 @@ echo "================================="
 # Run the tests
 if [[ "$1" == "--fast" ]]; then
     echo "Running fast tests only..."
-    uv run pytest test_integration_live.py::TestFakeCheckAPILive::test_server_is_running \
-                  test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint \
-                  test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint \
-                  test_integration_live.py::TestFakeCheckAPILive::test_basic_fact_check \
-                  test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors \
+    uv run pytest tests/test_integration_live.py::TestFakeCheckAPILive::test_server_is_running \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_basic_fact_check \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors \
                   -v --tb=short
 elif [[ "$1" == "--smoke" ]]; then
     echo "Running smoke tests only..."
-    uv run pytest test_integration_live.py::TestFakeCheckAPILive::test_server_is_running \
-                  test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint \
-                  test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint \
+    uv run pytest tests/test_integration_live.py::TestFakeCheckAPILive::test_server_is_running \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint \
                   -v --tb=short
 elif [[ "$1" == "--no-ai" ]]; then
     echo "Running tests without AI endpoints..."
-    uv run pytest test_integration_live.py::TestFakeCheckAPILive::test_server_is_running \
-                  test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint \
-                  test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint \
-                  test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors \
-                  test_integration_live.py::TestFakeCheckAPILive::test_malformed_requests \
-                  test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking \
-                  test_integration_live.py::TestFakeCheckAPILive::test_security_headers \
-                  test_integration_live.py::TestFakeCheckAPILive::test_error_response_format \
+    uv run pytest tests/test_integration_live.py::TestFakeCheckAPILive::test_server_is_running \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_malformed_requests \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_security_headers \
+                  tests/test_integration_live.py::TestFakeCheckAPILive::test_error_response_format \
                   -v --tb=short
 else
     echo "Running all integration tests..."
-    uv run pytest test_integration_live.py -v --tb=short
+    uv run pytest tests/test_integration_live.py -v --tb=short
 fi
 
 TEST_RESULT=$?

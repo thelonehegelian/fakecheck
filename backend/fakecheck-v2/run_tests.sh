@@ -29,7 +29,7 @@ echo "🚀 Running tests..."
 echo ""
 
 # Run the tests with verbose output using uv
-uv run pytest test_fake_news_api.py -v -s
+uv run pytest tests/test_fake_news_api.py -v -s
 
 echo ""
 echo "✨ Test run complete!"

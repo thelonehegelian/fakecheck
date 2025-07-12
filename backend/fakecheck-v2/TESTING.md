@@ -157,7 +157,7 @@ uv run python main.py
 ### Debug Mode
 For verbose output, run tests directly with pytest:
 ```bash
-uv run pytest test_integration_live.py -v -s
+uv run pytest tests/test_integration_live.py -v -s
 ```
 
 ## 📈 Performance Expectations

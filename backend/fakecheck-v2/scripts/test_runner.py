@@ -85,19 +85,19 @@ def _run_pytest(test_patterns: List[str], description: str) -> int:
 
 def run_integration_tests() -> int:
     """Run all integration tests."""
-    return _run_pytest(["test_integration_live.py"], "Integration Tests (All)")
+    return _run_pytest(["tests/test_integration_live.py"], "Integration Tests (All)")
 
 
 def run_fast_tests() -> int:
     """Run fast integration tests."""
     patterns = [
-        "test_integration_live.py::TestFakeCheckAPILive::test_server_is_running",
-        "test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
-        "test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
-        "test_integration_live.py::TestFakeCheckAPILive::test_basic_fact_check",
-        "test_integration_live.py::TestFakeCheckAPILive::test_llm_response_quality_true_news",
-        "test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors",
-        "test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_server_is_running",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_basic_fact_check",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_llm_response_quality_true_news",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking",
     ]
     return _run_pytest(patterns, "Fast Integration Tests")
 
@@ -105,9 +105,9 @@ def run_fast_tests() -> int:
 def run_smoke_tests() -> int:
     """Run smoke tests (basic connectivity)."""
     patterns = [
-        "test_integration_live.py::TestFakeCheckAPILive::test_server_is_running",
-        "test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
-        "test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_server_is_running",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
     ]
     return _run_pytest(patterns, "Smoke Tests")
 
@@ -115,14 +115,14 @@ def run_smoke_tests() -> int:
 def run_no_ai_tests() -> int:
     """Run tests that don't require AI APIs."""
     patterns = [
-        "test_integration_live.py::TestFakeCheckAPILive::test_server_is_running",
-        "test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
-        "test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
-        "test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors",
-        "test_integration_live.py::TestFakeCheckAPILive::test_malformed_requests",
-        "test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking",
-        "test_integration_live.py::TestFakeCheckAPILive::test_security_headers",
-        "test_integration_live.py::TestFakeCheckAPILive::test_error_response_format",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_server_is_running",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_health_endpoint",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_info_endpoint",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_input_validation_errors",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_malformed_requests",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_correlation_id_tracking",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_security_headers",
+        "tests/test_integration_live.py::TestFakeCheckAPILive::test_error_response_format",
     ]
     return _run_pytest(patterns, "Tests (No AI Dependencies)")
 

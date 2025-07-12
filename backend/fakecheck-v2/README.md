@@ -299,10 +299,10 @@ uv run test-no-ai        # Tests without AI dependencies
 uv sync --dev
 
 # Run all integration tests
-uv run pytest test_integration_live.py
+uv run pytest tests/test_integration_live.py
 
 # Run with verbose output
-uv run pytest test_integration_live.py -v -s
+uv run pytest tests/test_integration_live.py -v -s
 
 # Run specific test categories
 uv run pytest -m "not slow"  # Skip slow tests
