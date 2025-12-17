@@ -53,7 +53,7 @@ class RedditBot:
             logger.info(f"Command found in comment {comment.id} by {comment.author}")
 
             # Get content to check
-            content_to_check = await self._get_content_to_check(comment)
+            content_to_check = self._get_content_to_check(comment)
             if not content_to_check:
                 logger.warning(f"No content found to check for comment {comment.id}")
                 return
@@ -61,9 +61,11 @@ class RedditBot:
             logger.info(f"Checking content: {content_to_check[:100]}...")
             
             # Send "Processing" reply to let user know we picked it up
-            reply_msg = await comment.reply("Processing... I'm researching this claim. This may take a minute.")
+            # PRAW is synchronous, so no await here
+            reply_msg = comment.reply("Processing... I'm researching this claim. This may take a minute.")
             
             # Perform fact check
+            # This IS async, so we await it
             request = FactCheckRequest(news=content_to_check)
             result = await self.fact_checker.check_news(request)
             
@@ -77,14 +79,11 @@ class RedditBot:
         except Exception as e:
             logger.error(f"Error processing comment {comment.id}: {str(e)}")
             try:
-                # If we fail, try to inform the user.
-                # Use a fresh reply if the edit might fail (e.g. if reply_msg wasn't created)
-                # But here since we try-catch the whole block, let's just log it to avoid spam loops on error.
                 pass
             except:
                 pass
 
-    async def _get_content_to_check(self, comment: Comment) -> Optional[str]:
+    def _get_content_to_check(self, comment: Comment) -> Optional[str]:
         """Extract text from parent comment or submission."""
         # Check if it's a reply to another comment
         if not comment.is_root:
@@ -161,8 +160,13 @@ class RedditBot:
             logger.info("Bot stopped by user.")
         except Exception as e:
             logger.error(f"Critical bot error: {str(e)}")
-            # Retry loop could go here, or just exit. 
-            # For simplicity, we exit, and let an external supervisor restart if needed.
+    
+    def run_in_background(self):
+        """Run the bot in a separate thread."""
+        import threading
+        thread = threading.Thread(target=self.run, daemon=True)
+        thread.start()
+        return thread
 
     @property
     def subreddit(self):

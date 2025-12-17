@@ -45,6 +45,16 @@ async def lifespan(app: FastAPI):
         logger.error(f"Configuration validation failed: {e}")
         sys.exit(1)
 
+    # Start Reddit Bot in background if credentials are present
+    if settings.reddit_client_id and settings.reddit_client_secret:
+        try:
+            from reddit_bot import RedditBot
+            bot = RedditBot()
+            bot.run_in_background()
+            logger.info("Reddit Bot started in background")
+        except Exception as e:
+            logger.error(f"Failed to start Reddit Bot: {e}")
+
     logger.info("FakeCheck API v2.0 started successfully")
 
     yield
