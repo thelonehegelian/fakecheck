@@ -44,6 +44,7 @@ dependencies = [
     "langchain-community>=0.2.19",
     "langchain-anthropic>=0.1.23",
     "langchain-openai>=0.1.25",
+    "praw>=7.7.1",
 ]
 
 [project.optional-dependencies]

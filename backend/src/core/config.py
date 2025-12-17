@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(..., description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
     perplexity_api_key: str = Field(..., description="Perplexity API key", validation_alias="PERPLEXITY_API_KEY")
 
+    # Reddit Configuration
+    reddit_client_id: Optional[str] = Field(default=None, description="Reddit Client ID", validation_alias="REDDIT_CLIENT_ID")
+    reddit_client_secret: Optional[str] = Field(default=None, description="Reddit Client Secret", validation_alias="REDDIT_CLIENT_SECRET")
+    reddit_user_agent: Optional[str] = Field(default="FakeCheckBot/1.0", description="Reddit User Agent", validation_alias="REDDIT_USER_AGENT")
+    reddit_username: Optional[str] = Field(default=None, description="Reddit Username", validation_alias="REDDIT_USERNAME")
+    reddit_password: Optional[str] = Field(default=None, description="Reddit Password", validation_alias="REDDIT_PASSWORD")
+    reddit_subreddit: str = Field(default="test", description="Subreddit to monitor", validation_alias="REDDIT_SUBREDDIT")
+
     # Model Configuration
     anthropic_model: str = Field(
         default="claude-3-5-haiku-latest", description="Anthropic model to use", validation_alias="ANTHROPIC_MODEL"
