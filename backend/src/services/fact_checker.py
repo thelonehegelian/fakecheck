@@ -430,7 +430,10 @@ class FactCheckService:
             ]
 
         # Calculate confidence interval
-        confidence_score = analysis_result.get("confidence_score", 0.5)
+        confidence_score = analysis_result.get("confidence_score")
+        if confidence_score is None:
+            confidence_score = 0.5
+            
         confidence_interval = self._calculate_confidence_interval(
             confidence_score, analysis_result, source_analysis
         )
