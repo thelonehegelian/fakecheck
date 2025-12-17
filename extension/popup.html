@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FakeCheck</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔍 FakeCheck</h1>
+      <p class="subtitle">AI-Powered Fact Checking</p>
+    </header>
+
+    <div class="input-section">
+      <textarea
+        id="textInput"
+        placeholder="Paste text to fact-check, or right-click selected text on any webpage..."
+        rows="4"
+      ></textarea>
+      <button id="checkBtn" class="btn-primary">Check This Claim</button>
+    </div>
+
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Analyzing claim...</p>
+    </div>
+
+    <div id="results" class="results hidden">
+      <div class="result-header">
+        <div class="rating-badge" id="ratingBadge"></div>
+        <div class="confidence" id="confidence"></div>
+      </div>
+
+      <div class="result-section">
+        <h3>Analysis</h3>
+        <div id="analysis" class="analysis-text"></div>
+      </div>
+
+      <div class="result-section" id="riskSection">
+        <h3>Risk Factors</h3>
+        <ul id="riskFactors" class="risk-list"></ul>
+      </div>
+
+      <div class="result-section" id="sourcesSection">
+        <h3>Sources</h3>
+        <div id="sources" class="sources-list"></div>
+      </div>
+
+      <div class="result-section" id="stepsSection">
+        <h3>Verification Steps</h3>
+        <div id="verificationSteps" class="steps-list"></div>
+      </div>
+
+      <button id="newCheckBtn" class="btn-secondary">Check Another Claim</button>
+    </div>
+
+    <div id="error" class="error hidden">
+      <div class="error-icon">⚠️</div>
+      <p id="errorMessage"></p>
+      <button id="retryBtn" class="btn-secondary">Try Again</button>
+    </div>
+
+    <footer>
+      <p class="tip">💡 Tip: Right-click any text on a webpage and select "Fact-check this"</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
