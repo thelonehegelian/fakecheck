@@ -2,9 +2,9 @@
 Response models for FakeCheck API.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class VerificationStep(BaseModel):
@@ -93,9 +93,31 @@ class ExtractedClaim(BaseModel):
 class FactCheckResponse(BaseModel):
     """Enhanced response model for fact-checking endpoint."""
 
-    fake_news_rating: int = Field(
-        ..., description="Rating from 1-5 where 5 is definitely fake", ge=1, le=5
+    fake_news_rating: Union[int, str] = Field(
+        ..., description="Rating from 1-5 where 5 is definitely fake"
     )
+
+    @field_validator('fake_news_rating', mode='after')
+    @classmethod
+    def normalize_rating(cls, v):
+        """Normalize rating to integer (handles providers returning strings)."""
+        if isinstance(v, str):
+            try:
+                rating = int(v)
+                # Ensure it's in valid range
+                if rating < 1:
+                    return 1
+                elif rating > 5:
+                    return 5
+                return rating
+            except ValueError:
+                return 3  # Default to middle rating if conversion fails
+        # If already int, ensure valid range
+        if v < 1:
+            return 1
+        elif v > 5:
+            return 5
+        return v
 
     fake_news_explanation: str = Field(
         ...,
