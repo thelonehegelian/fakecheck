@@ -170,6 +170,25 @@ textarea:focus {
   line-height: 1.6;
 }
 
+.analysis-text p {
+  margin: 0 0 10px 0;
+}
+
+.analysis-text p:last-child {
+  margin-bottom: 0;
+}
+
+.analysis-text ul {
+  margin: 8px 0;
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.analysis-text li {
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
 .risk-list {
   list-style: none;
   padding: 0;

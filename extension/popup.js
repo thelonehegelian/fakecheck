@@ -24,6 +24,61 @@ const complexityMap = {
   'hard': 'Hard'
 };
 
+// Format analysis text with proper HTML formatting
+function formatAnalysisText(text) {
+  if (!text) return 'No analysis available.';
+
+  // Split by lines
+  let lines = text.split('\n');
+  let formattedHtml = '';
+  let inList = false;
+
+  lines.forEach(line => {
+    line = line.trim();
+    if (!line) {
+      // Empty line - close list if open and add paragraph break
+      if (inList) {
+        formattedHtml += '</ul>';
+        inList = false;
+      }
+      formattedHtml += '<br>';
+      return;
+    }
+
+    // Check if line starts with a bullet point (-, *, •, or numbered)
+    if (line.match(/^[-*•]\s/) || line.match(/^\d+\.\s/)) {
+      if (!inList) {
+        formattedHtml += '<ul>';
+        inList = true;
+      }
+      // Remove the bullet/number and add as list item
+      const content = line.replace(/^[-*•]\s/, '').replace(/^\d+\.\s/, '');
+      formattedHtml += `<li>${escapeHtml(content)}</li>`;
+    } else {
+      // Regular text
+      if (inList) {
+        formattedHtml += '</ul>';
+        inList = false;
+      }
+      formattedHtml += `<p>${escapeHtml(line)}</p>`;
+    }
+  });
+
+  // Close list if still open
+  if (inList) {
+    formattedHtml += '</ul>';
+  }
+
+  return formattedHtml || escapeHtml(text);
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   // Check if there's text from context menu
@@ -105,7 +160,7 @@ function showResults(data) {
 
   // Display analysis
   const analysis = data.fake_news_explanation || data.true_news_explanation || 'No analysis available.';
-  document.getElementById('analysis').textContent = analysis;
+  document.getElementById('analysis').innerHTML = formatAnalysisText(analysis);
 
   // Display risk factors
   const riskFactors = data.risk_factors || [];
