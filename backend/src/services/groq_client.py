@@ -119,6 +119,14 @@ Citations: {citations}""",
             # Convert Pydantic model to dict for compatibility with existing code
             response_dict = result.model_dump(exclude={"timestamp", "citations"})
 
+            # Fix: Ensure fake_news_rating is an integer (Groq sometimes returns string)
+            if "fake_news_rating" in response_dict and isinstance(response_dict["fake_news_rating"], str):
+                try:
+                    response_dict["fake_news_rating"] = int(response_dict["fake_news_rating"])
+                except ValueError:
+                    logger.warning(f"Could not convert rating to int: {response_dict['fake_news_rating']}")
+                    response_dict["fake_news_rating"] = 3  # Default to middle rating
+
             # Add metadata
             response_dict["model_used"] = self.model
 
@@ -285,8 +293,8 @@ Citations: {citations}""",
             )
 
         # Generic API errors
-        if "api_error" in error_msg.lower() or "400" in error_msg:
-            raise ExternalAPIError(f"Groq API request failed: {error_msg}")
+        if "api_error" in error_msg.lower() or "400" in error_msg or "tool_use_failed" in error_msg.lower():
+            raise ExternalAPIError(f"Groq API request failed: {error_msg}", service="groq")
 
         # Processing/Validation errors
         if isinstance(e, OutputParserException):
