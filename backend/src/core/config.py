@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, description="Server port")
 
     # External API Keys
-    anthropic_api_key: str = Field(..., description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
+    anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
     perplexity_api_key: str = Field(..., description="Perplexity API key", validation_alias="PERPLEXITY_API_KEY")
+    groq_api_key: Optional[str] = Field(default=None, description="Groq API key", validation_alias="GROQ_API_KEY")
 
     # Reddit Configuration
     reddit_client_id: Optional[str] = Field(default=None, description="Reddit Client ID", validation_alias="REDDIT_CLIENT_ID")
@@ -32,9 +33,17 @@ class Settings(BaseSettings):
     reddit_password: Optional[str] = Field(default=None, description="Reddit Password", validation_alias="REDDIT_PASSWORD")
     reddit_subreddit: str = Field(default="test", description="Subreddit to monitor", validation_alias="REDDIT_SUBREDDIT")
 
+    # LLM Provider Configuration
+    llm_provider: str = Field(
+        default="groq", description="LLM provider to use (groq or anthropic)", validation_alias="LLM_PROVIDER"
+    )
+
     # Model Configuration
     anthropic_model: str = Field(
         default="claude-3-5-haiku-latest", description="Anthropic model to use", validation_alias="ANTHROPIC_MODEL"
+    )
+    groq_model: str = Field(
+        default="llama-3.3-70b-versatile", description="Groq model to use", validation_alias="GROQ_MODEL"
     )
     perplexity_model: str = Field(
         default="sonar-pro", description="Perplexity model to use", validation_alias="PERPLEXITY_MODEL"
@@ -107,6 +116,28 @@ class Settings(BaseSettings):
         if v not in valid_models:
             print(f"Warning: Using custom Perplexity model: {v}")
         return v
+
+    @validator("groq_model")
+    def validate_groq_model(cls, v):
+        """Validate Groq model name."""
+        valid_models = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it",
+        ]
+        if v not in valid_models:
+            print(f"Warning: Using custom Groq model: {v}")
+        return v
+
+    @validator("llm_provider")
+    def validate_llm_provider(cls, v):
+        """Validate LLM provider."""
+        valid_providers = ["groq", "anthropic"]
+        if v.lower() not in valid_providers:
+            raise ValueError(f"LLM provider must be one of {valid_providers}")
+        return v.lower()
 
     def get_default_base_prompt(self) -> str:
         """Get the default base prompt."""

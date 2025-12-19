@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from src.core.config import Settings
 from src.core.exceptions import ProcessingError, ValidationError
-from src.services.anthropic_client import AnthropicClient
+from src.services.llm_factory import LLMFactory
 from src.models.responses import SourceCredibility
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class SourceCredibilityService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.anthropic_client = AnthropicClient(settings)
+        self.llm_client = LLMFactory.create_client(settings)
 
         # Known source database (in production, this would be a real database)
         self.known_sources = {
@@ -181,7 +181,7 @@ class SourceCredibilityService:
             )
 
             # Use Anthropic for analysis
-            analysis_result = await self.anthropic_client.analyze_source_credibility(
+            analysis_result = await self.llm_client.analyze_source_credibility(
                 prompt=prompt,
                 source_info={
                     "url": source_url,

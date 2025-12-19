@@ -18,7 +18,7 @@ from src.core.exceptions import (
     ExternalAPIError,
 )
 from src.services.sonar_client import SonarClient
-from src.services.anthropic_client import AnthropicClient
+from src.services.llm_factory import LLMFactory
 from src.services.source_credibility import SourceCredibilityService
 from src.services.claim_extraction import ClaimExtractionService
 from src.models.requests import FactCheckRequest, BatchFactCheckRequest
@@ -33,7 +33,8 @@ class FactCheckService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.sonar_client = SonarClient(settings)
-        self.anthropic_client = AnthropicClient(settings)
+        # Use factory to create the appropriate LLM client
+        self.llm_client = LLMFactory.create_client(settings)
         self.source_credibility_service = SourceCredibilityService(settings)
         self.claim_extraction_service = ClaimExtractionService(settings)
 
@@ -367,7 +368,7 @@ class FactCheckService:
             if "error" in research_result:
                 research_context += f"\n\nNote: Research API failed with error: {research_result['error']}"
 
-            analysis_result = await self.anthropic_client.analyze_news(
+            analysis_result = await self.llm_client.analyze_news(
                 news_text=request.news,
                 research_context=research_context,
                 citations=citations,
@@ -730,9 +731,10 @@ class FactCheckService:
             sonar_health = await self.sonar_client.health_check()
             health_results["sonar"] = sonar_health
 
-            # Check Anthropic client
-            anthropic_health = await self.anthropic_client.health_check()
-            health_results["anthropic"] = anthropic_health
+            # Check LLM client (Groq or Anthropic)
+            llm_health = await self.llm_client.health_check()
+            provider_name = LLMFactory.get_provider_name(self.settings)
+            health_results[provider_name] = llm_health
 
             # Check source credibility service
             source_health = await self.source_credibility_service.health_check()
@@ -770,15 +772,18 @@ class FactCheckService:
         Returns:
             Dictionary with service information
         """
+        provider_name = LLMFactory.get_provider_name(self.settings)
+
         return {
             "name": self.settings.app_name,
             "version": self.settings.app_version,
+            "llm_provider": provider_name,
             "models": {
-                "anthropic": self.anthropic_client.get_available_models(),
+                provider_name: self.llm_client.get_available_models(),
                 "perplexity": ["sonar-pro", "sonar"],
             },
             "current_models": {
-                "anthropic": self.settings.anthropic_model,
+                provider_name: LLMFactory.get_model_name(self.settings),
                 "perplexity": self.settings.perplexity_model,
             },
             "limits": {

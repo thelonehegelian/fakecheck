@@ -37,9 +37,17 @@ async def lifespan(app: FastAPI):
 
     # Validate configuration
     try:
-        # Test API keys are available
-        assert settings.anthropic_api_key, "ANTHROPIC_API_KEY is required"
+        # Test API keys are available based on provider
         assert settings.perplexity_api_key, "PERPLEXITY_API_KEY is required"
+
+        llm_provider = settings.llm_provider.lower()
+        if llm_provider == "groq":
+            assert settings.groq_api_key, "GROQ_API_KEY is required when using Groq provider"
+            logger.info(f"Using Groq as LLM provider with model: {settings.groq_model}")
+        elif llm_provider == "anthropic":
+            assert settings.anthropic_api_key, "ANTHROPIC_API_KEY is required when using Anthropic provider"
+            logger.info(f"Using Anthropic as LLM provider with model: {settings.anthropic_model}")
+
         logger.info("Configuration validated successfully")
     except AssertionError as e:
         logger.error(f"Configuration validation failed: {e}")

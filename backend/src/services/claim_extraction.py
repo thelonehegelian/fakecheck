@@ -9,7 +9,7 @@ from datetime import datetime
 
 from src.core.config import Settings
 from src.core.exceptions import ProcessingError, ValidationError
-from src.services.anthropic_client import AnthropicClient
+from src.services.llm_factory import LLMFactory
 from src.models.responses import ExtractedClaim
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class ClaimExtractionService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.anthropic_client = AnthropicClient(settings)
+        self.llm_client = LLMFactory.create_client(settings)
 
     async def extract_claims(
         self, text: str, extract_type: str = "factual", max_claims: int = 5
@@ -56,7 +56,7 @@ class ClaimExtractionService:
             prompt = self._create_extraction_prompt(text, extract_type, max_claims)
 
             # Use Anthropic for extraction
-            extraction_result = await self.anthropic_client.extract_claims(
+            extraction_result = await self.llm_client.extract_claims(
                 prompt=prompt,
                 text=text,
                 extract_type=extract_type,
@@ -297,7 +297,7 @@ class ClaimExtractionService:
             """
 
             # Use Anthropic for analysis
-            analysis_result = await self.anthropic_client.analyze_claim_verifiability(
+            analysis_result = await self.llm_client.analyze_claim_verifiability(
                 prompt=prompt, claim=claim.claim
             )
 
