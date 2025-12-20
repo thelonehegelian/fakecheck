@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 FakeCheck is a fake news detection system with three main components:
-1. **FastAPI Backend** (`backend/fakecheck-v2/`) - AI-powered fact-checking API using Claude and Perplexity Sonar
+1. **FastAPI Backend** (`backend/fakecheck-v2/`) - AI-powered fact-checking API using Claude and Perplexica (with Perplexity Sonar fallback)
 2. **Browser Extension** (`extension/`) - Chrome extension for real-time text analysis on web pages
 3. **Twitter Bot** (`backend/fakecheck-v2/twitter-bot.py`) - Automated fact-checking via Twitter mentions
 
@@ -84,7 +84,8 @@ backend/fakecheck-v2/
 │   ├── services/
 │   │   ├── fact_checker.py         # Main orchestration service
 │   │   ├── anthropic_client.py     # Claude API client (structured output)
-│   │   ├── sonar_client.py         # Perplexity Sonar API client
+│   │   ├── perplexica_client.py    # Perplexica API client (open-source research)
+│   │   ├── sonar_client.py         # Perplexity Sonar API client (fallback)
 │   │   ├── claim_extraction.py     # Claim identification service
 │   │   └── source_credibility.py   # Source analysis service
 │   ├── models/
@@ -121,7 +122,7 @@ backend/fakecheck-v2/
    - Output: Claims with types (factual, opinion, statistical), confidence scores
 
 5. **GET /health** - Service health check
-   - Returns: Service status, dependency health (Anthropic, Perplexity)
+   - Returns: Service status, dependency health (Perplexica, Perplexity Sonar, Anthropic/Groq)
    - Status codes: 200 (healthy), 503 (unhealthy)
 
 6. **GET /info** - API information
@@ -133,12 +134,17 @@ The main `/check-fake` endpoint follows this flow:
 
 ```
 1. Input Validation (FactCheckRequest)
-2. Research Phase (Perplexity Sonar) - Web search for fact-checking
+2. Research Phase (Perplexica, with Perplexity Sonar fallback) - Web search for fact-checking
 3. Claim Extraction (ClaimExtractionService) - Identify verifiable claims
-4. AI Analysis (Anthropic Claude) - Analyze with structured output schema
+4. AI Analysis (Anthropic Claude or Groq) - Analyze with structured output schema
 5. Response Enhancement - Add metadata, processing time
 6. Return FactCheckResponse
 ```
+
+**Research Provider Priority:**
+- Primary: Perplexica (open-source, self-hosted at localhost:3000)
+- Fallback: Perplexity Sonar (if Perplexica fails or is unavailable)
+- Configuration: Can be disabled/enabled via environment variables
 
 ### Middleware Chain
 
@@ -153,7 +159,11 @@ Requests pass through three middleware layers:
 Custom exception hierarchy in `src/core/exceptions.py`:
 - `FakeCheckError` (base)
   - `ValidationError`
-  - `ExternalAPIError` (Anthropic/Perplexity failures)
+  - `ExternalAPIError` (Anthropic/Perplexity/Perplexica failures)
+    - `PerplexicaConnectionError`
+    - `PerplexicaAPIError`
+    - `PerplexityAPIError`
+    - `AnthropicAPIError`
   - `ProcessingError`
   - `TimeoutError`
   - `RateLimitError`
@@ -183,6 +193,15 @@ TWITTER_ACCESS_TOKEN_SECRET=...
 # Model Selection
 ANTHROPIC_MODEL=claude-3-5-haiku-latest  # Default
 PERPLEXITY_MODEL=sonar-pro               # Default
+LLM_PROVIDER=groq                        # groq or anthropic (default: groq)
+GROQ_MODEL=llama-3.3-70b-versatile       # Default Groq model
+
+# Perplexica Configuration (Open-Source Research Provider)
+PERPLEXICA_ENABLED=true                          # Enable Perplexica (default: true)
+PERPLEXICA_ENDPOINT=http://localhost:3000        # Perplexica API URL (default: localhost:3000)
+PERPLEXICA_FOCUS_MODE=webSearch                  # webSearch, academicSearch, writingAssistant, wolframAlphaSearch, youtubeSearch, redditSearch (default: webSearch)
+PERPLEXICA_OPTIMIZATION_MODE=balanced            # speed or balanced (default: balanced)
+RESEARCH_FALLBACK_ENABLED=true                   # Enable fallback to Perplexity Sonar when Perplexica fails (default: true)
 
 # API Configuration
 MAX_TOKENS=4000                          # Default
@@ -214,12 +233,37 @@ Configuration is managed via `src/core/config.py` using Pydantic Settings with a
   - Confidence scores
 - Async client with retry logic and error handling
 
-### Perplexity Sonar Integration
+### Perplexica Integration (Primary Research Provider)
+
+- **Open-source AI-powered search engine** running on localhost:3000
+- Combines multiple search engines with AI for comprehensive research
+- **No API key required** (self-hosted)
+- Supports multiple focus modes (web, academic, YouTube, Reddit, etc.)
+- Automatically discovers and uses available AI providers (Groq, OpenAI, etc.)
+- **Smart model selection**: Prefers general-purpose models (llama-3.3-70b-versatile, llama-3.1-8b-instant) over specialized ones
+- **Automatic fallback**: Falls back to Perplexity Sonar if unavailable
+- Provides citations from multiple sources
+- Configurable optimization mode (speed vs balanced)
+
+**Key Features:**
+- Dynamic provider discovery via `/api/providers` endpoint
+- Supports different providers for chat and embedding models
+- Structured search results with sources and metadata
+- Async HTTP client with proper timeout handling
+- Health check monitoring integrated into `/v1/health` endpoint
+
+**Fallback Behavior:**
+1. Try Perplexica first (if `PERPLEXICA_ENABLED=true`)
+2. If Perplexica fails (connection error, timeout, API error), fall back to Perplexity Sonar (if `RESEARCH_FALLBACK_ENABLED=true`)
+3. If both fail, continue fact-checking with limited research context
+
+### Perplexity Sonar Integration (Fallback Research Provider)
 
 - Real-time web research for fact-checking
 - Provides citations and reliable sources
 - Uses `sonar-pro` model by default
-- Research context fed into Claude for enhanced analysis
+- Research context fed into Claude/Groq for enhanced analysis
+- Serves as automatic fallback when Perplexica is unavailable
 
 ### Browser Extension
 
@@ -324,9 +368,10 @@ All requests/responses use Pydantic V2 models for validation:
 ### Service Layer Pattern
 
 Business logic is isolated in services (`src/services/`):
-- `FactCheckService` - Main orchestrator
-- `AnthropicClient` - Claude API wrapper
-- `SonarClient` - Perplexity API wrapper
+- `FactCheckService` - Main orchestrator with fallback logic
+- `PerplexicaClient` - Perplexica API wrapper (primary research)
+- `SonarClient` - Perplexity API wrapper (fallback research)
+- `AnthropicClient` / `GroqClient` - LLM API wrappers
 - `ClaimExtractionService` - Claim identification
 - `SourceCredibilityService` - Source analysis
 

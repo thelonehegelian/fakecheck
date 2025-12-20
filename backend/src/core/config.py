@@ -49,6 +49,29 @@ class Settings(BaseSettings):
         default="sonar-pro", description="Perplexity model to use", validation_alias="PERPLEXITY_MODEL"
     )
 
+    # Perplexica Configuration (open-source alternative to Perplexity)
+    perplexica_enabled: bool = Field(
+        default=True, description="Enable Perplexica for research", validation_alias="PERPLEXICA_ENABLED"
+    )
+    perplexica_endpoint: str = Field(
+        default="http://localhost:3000", description="Perplexica API endpoint", validation_alias="PERPLEXICA_ENDPOINT"
+    )
+    perplexica_focus_mode: str = Field(
+        default="webSearch",
+        description="Perplexica focus mode (webSearch, academicSearch, writingAssistant, wolframAlphaSearch, youtubeSearch, redditSearch)",
+        validation_alias="PERPLEXICA_FOCUS_MODE"
+    )
+    perplexica_optimization_mode: str = Field(
+        default="balanced",
+        description="Perplexica optimization mode (speed or balanced)",
+        validation_alias="PERPLEXICA_OPTIMIZATION_MODE"
+    )
+
+    # Research Configuration
+    research_fallback_enabled: bool = Field(
+        default=True, description="Enable fallback to Perplexity when Perplexica fails", validation_alias="RESEARCH_FALLBACK_ENABLED"
+    )
+
     # API Configuration
     max_tokens: int = Field(default=4000, description="Max tokens for AI responses")
     request_timeout: int = Field(default=30, description="Request timeout in seconds")
@@ -138,6 +161,29 @@ class Settings(BaseSettings):
         if v.lower() not in valid_providers:
             raise ValueError(f"LLM provider must be one of {valid_providers}")
         return v.lower()
+
+    @validator("perplexica_focus_mode")
+    def validate_perplexica_focus_mode(cls, v):
+        """Validate Perplexica focus mode."""
+        valid_modes = [
+            "webSearch",
+            "academicSearch",
+            "writingAssistant",
+            "wolframAlphaSearch",
+            "youtubeSearch",
+            "redditSearch",
+        ]
+        if v not in valid_modes:
+            print(f"Warning: Using custom Perplexica focus mode: {v}")
+        return v
+
+    @validator("perplexica_optimization_mode")
+    def validate_perplexica_optimization_mode(cls, v):
+        """Validate Perplexica optimization mode."""
+        valid_modes = ["speed", "balanced"]
+        if v not in valid_modes:
+            raise ValueError(f"Perplexica optimization mode must be one of {valid_modes}")
+        return v
 
     def get_default_base_prompt(self) -> str:
         """Get the default base prompt."""

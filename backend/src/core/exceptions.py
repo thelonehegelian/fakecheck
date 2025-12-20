@@ -94,6 +94,30 @@ class PerplexityAPIError(ExternalAPIError):
         super().__init__(message, "perplexity", status_code, details)
 
 
+class PerplexicaConnectionError(ExternalAPIError):
+    """Raised when Perplexica connection fails."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message, "perplexica", status_code, details)
+
+
+class PerplexicaAPIError(ExternalAPIError):
+    """Raised when Perplexica API calls fail."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message, "perplexica", status_code, details)
+
+
 class RateLimitError(FakeCheckError):
     """Raised when rate limits are exceeded."""
 

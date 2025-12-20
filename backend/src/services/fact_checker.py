@@ -16,8 +16,11 @@ from src.core.exceptions import (
     ValidationError,
     TimeoutError,
     ExternalAPIError,
+    PerplexicaConnectionError,
+    PerplexicaAPIError,
 )
 from src.services.sonar_client import SonarClient
+from src.services.perplexica_client import PerplexicaClient
 from src.services.llm_factory import LLMFactory
 from src.services.source_credibility import SourceCredibilityService
 from src.services.claim_extraction import ClaimExtractionService
@@ -33,6 +36,9 @@ class FactCheckService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.sonar_client = SonarClient(settings)
+        self.perplexica_client = PerplexicaClient(settings)
+        self.perplexica_enabled = settings.perplexica_enabled
+        self.research_fallback_enabled = settings.research_fallback_enabled
         # Use factory to create the appropriate LLM client
         self.llm_client = LLMFactory.create_client(settings)
         self.source_credibility_service = SourceCredibilityService(settings)
@@ -213,7 +219,7 @@ class FactCheckService:
 
     async def _research_claim(self, request: FactCheckRequest) -> Dict[str, Any]:
         """
-        Research the claim using Perplexity Sonar.
+        Research the claim using Perplexica (primary) with fallback to Perplexity Sonar.
 
         Args:
             request: Fact-checking request
@@ -222,31 +228,73 @@ class FactCheckService:
             Research results
 
         Raises:
-            ExternalAPIError: When Sonar API fails
+            ExternalAPIError: When all research providers fail
         """
-        try:
-            # Use custom prompt if provided, otherwise use default
-            custom_prompt = None
-            if request.custom_prompt:
-                custom_prompt = request.custom_prompt
+        custom_prompt = None
+        if request.custom_prompt:
+            custom_prompt = request.custom_prompt
 
-            research_result = await self.sonar_client.research_claim(
-                text=request.news, custom_prompt=custom_prompt
-            )
+        # Try Perplexica first if enabled
+        if self.perplexica_enabled:
+            try:
+                logger.info("Attempting research with Perplexica")
+                research_result = await self.perplexica_client.research_claim(
+                    text=request.news, custom_prompt=custom_prompt
+                )
+                logger.info(
+                    f"Perplexica research successful. Found {len(research_result.get('citations', []))} citations"
+                )
+                return research_result
 
-            logger.info(
-                f"Research completed. Found {len(research_result.get('citations', []))} citations"
-            )
-            return research_result
+            except (PerplexicaConnectionError, PerplexicaAPIError, TimeoutError) as e:
+                logger.warning(f"Perplexica failed: {str(e)}, attempting fallback")
 
-        except Exception as e:
-            logger.error(f"Research failed: {str(e)}")
-            # Return minimal research result if API fails
-            return {
-                "content": f"Research failed: {str(e)}",
-                "citations": [],
-                "error": str(e),
-            }
+                # Fallback to Perplexity Sonar if enabled
+                if self.research_fallback_enabled:
+                    try:
+                        logger.info("Falling back to Perplexity Sonar")
+                        research_result = await self.sonar_client.research_claim(
+                            text=request.news, custom_prompt=custom_prompt
+                        )
+                        logger.info(
+                            f"Perplexity Sonar research successful. Found {len(research_result.get('citations', []))} citations"
+                        )
+                        return research_result
+                    except Exception as sonar_error:
+                        logger.error(
+                            f"Both research providers failed. Perplexica: {str(e)}, Sonar: {str(sonar_error)}"
+                        )
+                        return {
+                            "content": f"Research unavailable: Perplexica and Perplexity both failed",
+                            "citations": [],
+                            "error": str(e),
+                        }
+                else:
+                    # No fallback enabled, return error
+                    logger.error(f"Perplexica failed and fallback is disabled: {str(e)}")
+                    return {
+                        "content": f"Research failed: {str(e)}",
+                        "citations": [],
+                        "error": str(e),
+                    }
+        else:
+            # Perplexica disabled, use Sonar directly
+            try:
+                logger.info("Perplexica disabled, using Perplexity Sonar")
+                research_result = await self.sonar_client.research_claim(
+                    text=request.news, custom_prompt=custom_prompt
+                )
+                logger.info(
+                    f"Perplexity Sonar research completed. Found {len(research_result.get('citations', []))} citations"
+                )
+                return research_result
+            except Exception as e:
+                logger.error(f"Perplexity Sonar research failed: {str(e)}")
+                return {
+                    "content": f"Research failed: {str(e)}",
+                    "citations": [],
+                    "error": str(e),
+                }
 
     async def _extract_claims(self, request: FactCheckRequest) -> List[ExtractedClaim]:
         """
@@ -727,7 +775,12 @@ class FactCheckService:
             # Check all service dependencies
             health_results = {}
 
-            # Check Sonar client
+            # Check Perplexica if enabled
+            if self.perplexica_enabled:
+                perplexica_health = await self.perplexica_client.health_check()
+                health_results["perplexica"] = perplexica_health
+
+            # Check Sonar client (always check for fallback availability)
             sonar_health = await self.sonar_client.health_check()
             health_results["sonar"] = sonar_health
 
@@ -745,9 +798,23 @@ class FactCheckService:
             health_results["claim_extraction"] = claim_health
 
             # Determine overall health
-            all_healthy = all(
-                result.get("status") == "healthy" for result in health_results.values()
+            # At least one research provider (Perplexica OR Sonar) must be healthy
+            research_healthy = (
+                (
+                    self.perplexica_enabled
+                    and health_results.get("perplexica", {}).get("status") == "healthy"
+                )
+                or health_results.get("sonar", {}).get("status") == "healthy"
             )
+
+            # Check other services (excluding research providers and overall)
+            other_services_healthy = all(
+                result.get("status") == "healthy"
+                for key, result in health_results.items()
+                if key not in ["perplexica", "sonar", "overall"]
+            )
+
+            all_healthy = research_healthy and other_services_healthy
 
             health_results["overall"] = {
                 "status": "healthy" if all_healthy else "degraded",

@@ -4,14 +4,15 @@ A modern, scalable fact-checking service using AI research and analysis. Built w
 
 ## 🚀 Features
 
-- **AI-Powered Analysis**: Uses Anthropic Claude for intelligent fact-checking
-- **Web Research**: Leverages Perplexity Sonar API for real-time research
+- **AI-Powered Analysis**: Uses Anthropic Claude or Groq for intelligent fact-checking
+- **Web Research**: Leverages Perplexica (open-source) with Perplexity Sonar API fallback for real-time research
+- **Automatic Fallback**: Seamless fallback from Perplexica to Perplexity Sonar if needed
 - **Async Operations**: Built on FastAPI with async/await for high performance
 - **Structured Output**: Returns detailed analysis with ratings, explanations, and verification steps
 - **Comprehensive Error Handling**: Proper HTTP status codes and error responses
 - **Security**: CORS policies, security headers, and input validation
 - **Monitoring**: Correlation IDs for request tracking and structured logging
-- **Health Checks**: Built-in health monitoring for all services
+- **Health Checks**: Built-in health monitoring for all services (Perplexica, Sonar, LLM)
 - **API Versioning**: Proper versioning with backward compatibility
 
 ## 🏗️ Architecture
@@ -23,9 +24,12 @@ src/
 ├── api/
 │   └── routes/          # API route handlers
 ├── services/            # Business logic services
-│   ├── fact_checker.py  # Main orchestration service
-│   ├── sonar_client.py  # Perplexity API client
-│   └── anthropic_client.py  # Anthropic API client
+│   ├── fact_checker.py         # Main orchestration service with fallback logic
+│   ├── perplexica_client.py    # Perplexica API client (primary)
+│   ├── sonar_client.py         # Perplexity Sonar API client (fallback)
+│   ├── anthropic_client.py     # Anthropic API client
+│   ├── groq_client.py          # Groq API client
+│   └── llm_factory.py          # LLM provider factory
 ├── models/              # Pydantic models
 │   ├── requests.py      # Request models
 │   └── responses.py     # Response models
@@ -42,9 +46,10 @@ src/
 
 - Python 3.8.1+
 - [uv](https://docs.astral.sh/uv/) - Modern Python package manager
+- [Perplexica](https://github.com/ItzCrazyKns/Perplexica) running on localhost:3000 (recommended for research)
 - API keys for:
-  - Anthropic Claude API
-  - Perplexity Sonar API
+  - Anthropic Claude API or Groq API (for LLM analysis)
+  - Perplexity Sonar API (optional, used as fallback if Perplexica unavailable)
 
 ### Setup
 
@@ -77,19 +82,38 @@ uv sync --dev
 
 3. **Set environment variables**
 ```bash
-export ANTHROPIC_API_KEY="your_anthropic_api_key"
+# Required (choose one LLM provider)
+export GROQ_API_KEY="your_groq_api_key"              # For Groq (default, fast)
+# OR
+export ANTHROPIC_API_KEY="your_anthropic_api_key"   # For Anthropic Claude
+
+# Optional (for fallback research)
 export PERPLEXITY_API_KEY="your_perplexity_api_key"
 ```
 
 Or create a `.env` file:
 ```env
-ANTHROPIC_API_KEY=your_anthropic_api_key
-PERPLEXITY_API_KEY=your_perplexity_api_key
-ANTHROPIC_MODEL=claude-3-5-haiku-latest
-PERPLEXITY_MODEL=sonar-pro
+# LLM Provider (choose one)
+LLM_PROVIDER=groq                           # groq or anthropic (default: groq)
+GROQ_API_KEY=your_groq_api_key             # If using Groq
+GROQ_MODEL=llama-3.3-70b-versatile         # Default Groq model
+# ANTHROPIC_API_KEY=your_anthropic_api_key  # If using Anthropic
+# ANTHROPIC_MODEL=claude-3-5-haiku-latest    # Default Claude model
+
+# Research Providers
+PERPLEXICA_ENABLED=true                     # Enable Perplexica (default: true)
+PERPLEXICA_ENDPOINT=http://localhost:3000   # Perplexica URL
+PERPLEXICA_FOCUS_MODE=webSearch             # webSearch, academicSearch, etc.
+PERPLEXICA_OPTIMIZATION_MODE=balanced       # speed or balanced
+RESEARCH_FALLBACK_ENABLED=true              # Fallback to Perplexity if Perplexica fails
+PERPLEXITY_API_KEY=your_perplexity_api_key  # Only needed if fallback enabled
+PERPLEXITY_MODEL=sonar-pro                  # Default Perplexity model
+
+# Server Configuration
 LOG_LEVEL=INFO
 DEBUG=false
 CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+REQUEST_TIMEOUT=30
 ```
 
 4. **Run the application**
