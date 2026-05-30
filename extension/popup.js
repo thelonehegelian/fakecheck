@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Settings toggle
   settingsBtn.addEventListener('click', () => {
     chrome.storage.local.get(['apiUrl'], (data) => {
-      apiUrlInput.value = data.apiUrl || 'http://localhost:8000';
+      apiUrlInput.value = data.apiUrl || 'https://backend-production-2f0a.up.railway.app';
       settingsPanel.classList.toggle('hidden');
       clearSettingsError();
     });
@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
   saveSettingsBtn.addEventListener('click', () => {
     let url = apiUrlInput.value.trim();
     if (!url) {
-      url = 'http://localhost:8000';
+      url = 'https://backend-production-2f0a.up.railway.app';
     }
     // Remove trailing slash if present
     if (url.endsWith('/')) {
