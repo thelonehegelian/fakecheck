@@ -3,7 +3,7 @@ Configuration management for FakeCheck API.
 """
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import Field, validator
 from pydantic_settings import BaseSettings
 
@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     request_timeout: int = Field(default=30, description="Request timeout in seconds")
 
     # CORS Configuration
-    cors_origins: List[str] = Field(
+    cors_origins: Union[List[str], str] = Field(
         default=["http://localhost:3000", "http://localhost:3001"],
         description="Allowed CORS origins",
         validation_alias="CORS_ORIGINS",
@@ -207,6 +207,7 @@ YOU MUST MAINTAIN AN IMPARTIAL AND FAIR TONE."""
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
         "populate_by_name": True,
+        "extra": "ignore",
     }
 
 
