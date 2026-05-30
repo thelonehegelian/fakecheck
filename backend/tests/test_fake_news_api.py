@@ -341,7 +341,7 @@ class TestFakeCheckComponents:
         service = FactCheckService(settings)
         assert service.settings == settings
         assert service.sonar_client is not None
-        assert service.anthropic_client is not None
+        assert service.llm_client is not None
 
 
 def test_environment_setup():
