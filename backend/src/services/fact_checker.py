@@ -35,10 +35,16 @@ class FactCheckService:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.sonar_client = SonarClient(settings)
-        self.perplexica_client = PerplexicaClient(settings)
         self.perplexica_enabled = settings.perplexica_enabled
         self.research_fallback_enabled = settings.research_fallback_enabled
+        
+        # Initialize SonarClient only if fallback is enabled or Perplexica is disabled, AND perplexity_api_key is provided
+        if (not self.perplexica_enabled or self.research_fallback_enabled) and settings.perplexity_api_key:
+            self.sonar_client = SonarClient(settings)
+        else:
+            self.sonar_client = None
+
+        self.perplexica_client = PerplexicaClient(settings)
         # Use factory to create the appropriate LLM client
         self.llm_client = LLMFactory.create_client(settings)
         self.source_credibility_service = SourceCredibilityService(settings)
@@ -780,9 +786,17 @@ class FactCheckService:
                 perplexica_health = await self.perplexica_client.health_check()
                 health_results["perplexica"] = perplexica_health
 
-            # Check Sonar client (always check for fallback availability)
-            sonar_health = await self.sonar_client.health_check()
-            health_results["sonar"] = sonar_health
+            # Check Sonar client if available
+            if self.sonar_client:
+                sonar_health = await self.sonar_client.health_check()
+                health_results["sonar"] = sonar_health
+            else:
+                health_results["sonar"] = {
+                    "status": "disabled",
+                    "error": "Perplexity Sonar fallback is disabled or not configured",
+                    "model_available": False,
+                    "citations_available": False,
+                }
 
             # Check LLM client (Groq or Anthropic)
             llm_health = await self.llm_client.health_check()
