@@ -1,3 +1,6 @@
+// Import shared utility scripts
+importScripts('utils.js');
+
 // Create context menu on installation
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -30,7 +33,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Function to call the FakeCheck API
 async function checkClaimWithAPI(text) {
-  const API_URL = 'http://localhost:8000/v1/check-fake';
+  const baseUrl = await getApiUrl();
+  const API_URL = `${baseUrl}/v1/check-fake`;
 
   const response = await fetch(API_URL, {
     method: 'POST',
