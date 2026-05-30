@@ -37,7 +37,6 @@ def test_openrouter_default_model():
         _env_file=None,
         llm_provider="openrouter",
         openrouter_api_key="test-api-key",
-        openrouter_model=None,
         perplexity_api_key="dummy"
     )
     client = LLMFactory.create_client(settings)

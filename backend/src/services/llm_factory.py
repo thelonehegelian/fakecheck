@@ -37,7 +37,7 @@ class LLMFactory:
                 raise ValueError(
                     "OPENROUTER_API_KEY is required when LLM_PROVIDER is set to 'openrouter'"
                 )
-            model_name = settings.openrouter_model or "google/gemini-3.5-flash"
+            model_name = settings.openrouter_model
             logger.info("Using OpenRouter as LLM provider with model: %s", model_name)
             return OpenRouterClient(settings)
 
@@ -90,7 +90,7 @@ class LLMFactory:
         """
         provider = settings.llm_provider.lower()
         if provider == "openrouter":
-            return settings.openrouter_model or "google/gemini-3.5-flash"
+            return settings.openrouter_model
         elif provider == "groq":
             return settings.groq_model
         elif provider == "anthropic":

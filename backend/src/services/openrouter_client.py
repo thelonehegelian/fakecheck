@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, NoReturn
 
 from openrouter import OpenRouter
 from pydantic import BaseModel, Field
@@ -63,8 +63,7 @@ class OpenRouterClient:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.api_key = settings.openrouter_api_key
-        # Default to google/gemini-3.5-flash if none is provided in settings/env
-        self.model = settings.openrouter_model or "google/gemini-3.5-flash"
+        self.model = settings.openrouter_model
         self.timeout = settings.request_timeout
 
         if not self.api_key:
@@ -91,11 +90,12 @@ class OpenRouterClient:
         except json.JSONDecodeError:
             pass
             
-        # 3. Try to find any curly brace structure
-        match = re.search(r'(\{.*\})', text, re.DOTALL)
-        if match:
+        # 3. Strip any text before the first '{' and after the last '}'
+        first_brace = text.find('{')
+        last_brace = text.rfind('}')
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
             try:
-                return json.loads(match.group(1))
+                return json.loads(text[first_brace:last_brace+1])
             except json.JSONDecodeError:
                 pass
                 
@@ -128,8 +128,9 @@ class OpenRouterClient:
             
         except Exception as e:
             self._handle_exception(e)
+            raise
 
-    def _handle_exception(self, e: Exception) -> None:
+    def _handle_exception(self, e: Exception) -> NoReturn:
         """Handle exceptions and map to application exceptions."""
         error_msg = str(e)
         logger.error("OpenRouter error: %s", error_msg)
@@ -311,6 +312,8 @@ The JSON object must match this schema:
         """
         Check if the OpenRouter API is accessible by running a fast prompt.
         """
+        import time
+        start_time = time.time()
         try:
             messages = [{"role": "user", "content": "respond only with 'OK'"}]
             
@@ -322,10 +325,12 @@ The JSON object must match this schema:
                 timeout=10
             )
             
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
             if response and response.choices and response.choices[0].message.content:
                 return {
                     "status": "healthy",
-                    "response_time_ms": None,
+                    "response_time_ms": response_time_ms,
                     "model_available": True,
                     "structured_output_available": True,
                 }
@@ -345,7 +350,7 @@ The JSON object must match this schema:
         """
         return [
             "google/gemini-3.5-flash",
-            "~openai/gpt-latest",
+            "openai/gpt-4o-mini",
             "openai/gpt-4o",
             "anthropic/claude-3.5-sonnet",
             "meta-llama/llama-3.3-70b-instruct",

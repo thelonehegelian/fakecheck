@@ -43,6 +43,29 @@ class RedditBot:
         self.subreddit_name = self.settings.reddit_subreddit
         self.fact_checker = FactCheckService(self.settings)
 
+        # Deduplication and rate limiting
+        self.replied_comments_file = "replied_comments.txt"
+        self.replied_comments = set()
+        self._load_replied_comments()
+        self.user_last_request = {}
+
+    def _load_replied_comments(self):
+        import os
+        if os.path.exists(self.replied_comments_file):
+            try:
+                with open(self.replied_comments_file, "r") as f:
+                    self.replied_comments = set(line.strip() for line in f if line.strip())
+            except Exception as e:
+                logger.error(f"Failed to load replied comments: {e}")
+
+    def _save_replied_comment(self, comment_id: str):
+        self.replied_comments.add(comment_id)
+        try:
+            with open(self.replied_comments_file, "a") as f:
+                f.write(f"{comment_id}\n")
+        except Exception as e:
+            logger.error(f"Failed to save replied comment: {e}")
+
     async def process_comment(self, comment: Comment):
         """Process a single comment."""
         try:
@@ -50,6 +73,22 @@ class RedditBot:
             if "!fakecheck" not in body:
                 return
 
+            # Check deduplication
+            if comment.id in self.replied_comments:
+                return
+
+            # Check user rate limit (30 seconds between requests)
+            author = str(comment.author)
+            now = time.time()
+            if author in self.user_last_request:
+                time_since_last = now - self.user_last_request[author]
+                if time_since_last < 30:
+                    logger.warning(f"User {author} is rate-limited. Time since last: {time_since_last:.1f}s")
+                    comment.reply(f"Please wait {30 - time_since_last:.0f} seconds before making another request.")
+                    self._save_replied_comment(comment.id)
+                    return
+            
+            self.user_last_request[author] = now
             logger.info(f"Command found in comment {comment.id} by {comment.author}")
 
             # Get content to check
@@ -74,12 +113,13 @@ class RedditBot:
             
             # Edit the processing message with the final result
             reply_msg.edit(reply_text)
+            self._save_replied_comment(comment.id)
             logger.info(f"Successfully processed comment {comment.id}")
 
         except Exception as e:
             logger.error(f"Error processing comment {comment.id}: {str(e)}")
             try:
-                pass
+                self._save_replied_comment(comment.id)
             except:
                 pass
 
@@ -149,13 +189,21 @@ class RedditBot:
         reply += "\n---\n*I am a bot. beep boop.*"
         return reply
 
-    def run(self):
+    def run(self, loop=None):
         """Main loop to monitor stream."""
         logger.info(f"Starting Reddit Bot on /r/{self.subreddit_name}...")
         try:
             for comment in self.subreddit.stream.comments(skip_existing=True):
-                # We need to run async code from this sync iterator
-                asyncio.run(self.process_comment(comment))
+                # Quick pre-checks before triggering processing
+                body = comment.body.lower()
+                if "!fakecheck" not in body or comment.id in self.replied_comments:
+                    continue
+
+                # Run the async comment processing safely
+                if loop and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(self.process_comment(comment), loop)
+                else:
+                    asyncio.run(self.process_comment(comment))
         except KeyboardInterrupt:
             logger.info("Bot stopped by user.")
         except Exception as e:
@@ -164,7 +212,12 @@ class RedditBot:
     def run_in_background(self):
         """Run the bot in a separate thread."""
         import threading
-        thread = threading.Thread(target=self.run, daemon=True)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        thread = threading.Thread(target=self.run, args=(loop,), daemon=True)
         thread.start()
         return thread
 

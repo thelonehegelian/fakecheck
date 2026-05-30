@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # External API Keys
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
-    perplexity_api_key: str = Field(..., description="Perplexity API key", validation_alias="PERPLEXITY_API_KEY")
+    perplexity_api_key: Optional[str] = Field(default=None, description="Perplexity API key", validation_alias="PERPLEXITY_API_KEY")
     groq_api_key: Optional[str] = Field(default=None, description="Groq API key", validation_alias="GROQ_API_KEY")
     openrouter_api_key: Optional[str] = Field(default=None, description="OpenRouter API key", validation_alias="OPENROUTER_API_KEY")
 
@@ -46,8 +46,8 @@ class Settings(BaseSettings):
     groq_model: str = Field(
         default="llama-3.3-70b-versatile", description="Groq model to use", validation_alias="GROQ_MODEL"
     )
-    openrouter_model: Optional[str] = Field(
-        default=None, description="OpenRouter model to use", validation_alias="OPENROUTER_MODEL"
+    openrouter_model: str = Field(
+        default="google/gemini-3.5-flash", description="OpenRouter model to use", validation_alias="OPENROUTER_MODEL"
     )
     perplexity_model: str = Field(
         default="sonar-pro", description="Perplexity model to use", validation_alias="PERPLEXITY_MODEL"
