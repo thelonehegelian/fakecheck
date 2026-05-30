@@ -126,14 +126,69 @@ async def test_rate_limiting_exceeded():
 
 @pytest.mark.asyncio
 async def test_rate_limiting_excludes_health_and_info():
-    """Test that health, info, and root endpoints are not rate limited."""
+    """Test that health, info, and root endpoints are not rate limited even when quota is exceeded."""
     settings = get_settings()
     
     orig_requests = settings.rate_limit_requests
     orig_window = settings.rate_limit_window
     
     try:
-        # Set limit to 0 (all requests blocked if applied)
+        # Set limit to 1 request
+        settings.rate_limit_requests = 1
+        settings.rate_limit_window = 10
+        
+        app = create_app()
+        
+        import httpx
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("src.services.fact_checker.FactCheckService.check_news") as mock_check:
+                mock_check.return_value = {"fake_news_rating": 1, "fake_news_explanation": "Test", "true_news_explanation": "Test", "verification_steps": []}
+                
+                # 1. Exhaust the limit on a protected endpoint
+                response = await client.post(
+                    "/v1/check-fake",
+                    json={"news": "This is a valid test claim that meets the length requirement."}
+                )
+                assert response.status_code == 200
+                
+                # Confirm it is rate limited
+                response = await client.post(
+                    "/v1/check-fake",
+                    json={"news": "This is a valid test claim that meets the length requirement."}
+                )
+                assert response.status_code == 429
+                
+                # 2. Health endpoint should still pass and NOT have rate limit headers
+                response = await client.get("/v1/health")
+                assert response.status_code in [200, 503]
+                assert "X-RateLimit-Limit" not in response.headers
+                
+                # 3. Info endpoint should still pass and NOT have rate limit headers
+                response = await client.get("/v1/info")
+                assert response.status_code == 200
+                assert "X-RateLimit-Limit" not in response.headers
+                
+                # 4. Root API endpoint should still pass
+                response = await client.get("/")
+                assert response.status_code == 200
+                assert "X-RateLimit-Limit" not in response.headers
+
+    finally:
+        settings.rate_limit_requests = orig_requests
+        settings.rate_limit_window = orig_window
+
+
+@pytest.mark.asyncio
+async def test_rate_limiting_disabled_when_zero():
+    """Test that rate limiting is completely disabled when rate_limit_requests is 0 or negative (B2)."""
+    settings = get_settings()
+    
+    orig_requests = settings.rate_limit_requests
+    orig_window = settings.rate_limit_window
+    
+    try:
+        # Set limit to 0 (disabled)
         settings.rate_limit_requests = 0
         settings.rate_limit_window = 10
         
@@ -142,20 +197,17 @@ async def test_rate_limiting_excludes_health_and_info():
         import httpx
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            # 1. Health endpoint should pass and NOT have rate limit headers
-            response = await client.get("/v1/health")
-            assert response.status_code in [200, 503]
-            assert "X-RateLimit-Limit" not in response.headers
-            
-            # 2. Info endpoint should pass and NOT have rate limit headers
-            response = await client.get("/v1/info")
-            assert response.status_code == 200
-            assert "X-RateLimit-Limit" not in response.headers
-            
-            # 3. Root API endpoint should pass
-            response = await client.get("/")
-            assert response.status_code == 200
-            assert "X-RateLimit-Limit" not in response.headers
+            with patch("src.services.fact_checker.FactCheckService.check_news") as mock_check:
+                mock_check.return_value = {"fake_news_rating": 1, "fake_news_explanation": "Test", "true_news_explanation": "Test", "verification_steps": []}
+                
+                # Sending multiple requests should not block anything
+                for _ in range(3):
+                    response = await client.post(
+                        "/v1/check-fake",
+                        json={"news": "This is a valid test claim that meets the length requirement."}
+                    )
+                    assert response.status_code == 200
+                    assert "X-RateLimit-Limit" not in response.headers
 
     finally:
         settings.rate_limit_requests = orig_requests

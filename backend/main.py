@@ -9,6 +9,7 @@ import sys
 import time
 import asyncio
 import collections
+import ipaddress
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
@@ -167,14 +168,25 @@ def mask_ip(ip: str) -> str:
     """Mask client IP address for GDPR compliance."""
     if not ip or ip == "unknown":
         return ip
-    if ":" in ip:  # IPv6
-        parts = ip.split(":")
-        return ":".join(parts[:3]) + ":xxxx:xxxx:xxxx:xxxx:xxxx"
-    else:  # IPv4
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if ip_obj.version == 6:
+            # Exploded IPv6 is guaranteed to be full 8 colon-separated groups (e.g. 2001:0db8:0000:...)
+            exploded = ip_obj.exploded
+            parts = exploded.split(":")
+            return ":".join(parts[:3]) + ":xxxx:xxxx:xxxx:xxxx:xxxx"
+        else:  # IPv4
+            parts = ip.split(".")
+            if len(parts) == 4:
+                return f"{parts[0]}.{parts[1]}.x.x"
+            return "xxx.xxx.xxx.xxx"
+    except Exception:
+        # Secure fallback if IP is invalid or cannot be parsed
+        if ":" in ip:
+            parts = ip.split(":")
+            return ":".join(parts[:2]) + ":xxxx"
         parts = ip.split(".")
-        if len(parts) == 4:
-            return f"{parts[0]}.{parts[1]}.x.x"
-        return "xxx.xxx.xxx.xxx"
+        return f"{parts[0]}.x.x.x" if parts else "xxx.xxx.xxx.xxx"
 
 
 class RateLimitingMiddleware(BaseHTTPMiddleware):
@@ -186,16 +198,21 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
     an asyncio.Lock, but downstream request processing (call_next) runs outside of the lock. 
     This is a deliberate design choice to allow high API concurrency, with the minor trade-off 
     that the X-RateLimit-Remaining header can occasionally be slightly stale under high concurrency.
+    
+    NOTE (Single Worker Constraint): The asyncio.Lock and in-memory store are process-bound.
+    If deployed with multiple workers, state will be isolated per process. Centralized rate limiting
+    (e.g., via Redis) should be used if scaling horizontally.
     """
 
     def __init__(self, app, requests_limit: int = None, window_seconds: int = None, max_ips_stored: int = 2000):
         super().__init__(app)
-        self.requests_limit = requests_limit if requests_limit is not None else settings.rate_limit_requests
-        self.window_seconds = window_seconds if window_seconds is not None else settings.rate_limit_window
+        self.requests_limit_override = requests_limit
+        self.window_seconds_override = window_seconds
         # Use collections.OrderedDict for a strict, O(1) bounded LRU cache to prevent memory exhaustion DoS
         self.rate_limit_store = collections.OrderedDict()
         self.max_ips_stored = max_ips_stored
         self.lock = asyncio.Lock()
+        self.logger = logging.getLogger(__name__)
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -204,9 +221,17 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         is_api_route = path.startswith("/v1/") and path not in ["/v1/health", "/v1/info", "/v1"]
         
         if is_api_route:
+            # B1: Read config dynamically in dispatch() to support hot-reload / dynamic mutability
+            requests_limit = self.requests_limit_override if self.requests_limit_override is not None else settings.rate_limit_requests
+            window_seconds = self.window_seconds_override if self.window_seconds_override is not None else settings.rate_limit_window
+            
+            # B2: requests_limit <= 0 indicates rate limiting is disabled, bypass check
+            if requests_limit <= 0:
+                return await call_next(request)
+            
             client_ip = None
             
-            # Secure IP Resolution (B1): Only read X-Forwarded-For or X-Real-IP in hosted deployments
+            # Secure IP Resolution (B1/NB2): Only read X-Forwarded-For or X-Real-IP in hosted deployments
             # where a fronting reverse proxy (like Railway's load balancer) is guaranteed to overwrite
             # client-supplied headers. This completely prevents IP spoofing in local or untrusted environments.
             if settings.deployment == "hosted":
@@ -219,6 +244,14 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                         # Railway/proxies append client IP or overwrite X-Forwarded-For
                         client_ip = forwarded_for.split(",")[0].strip()
             
+            # NB2: Sanitize / validate client IP string and fall back to client.host if invalid
+            if client_ip:
+                try:
+                    ipaddress.ip_address(client_ip)
+                except ValueError:
+                    # Invalid IP address in proxy header, fall back
+                    client_ip = None
+            
             if not client_ip:
                 client_ip = request.client.host if request.client else "unknown"
 
@@ -228,26 +261,27 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                 # Retrieve client's request history
                 timestamps = self.rate_limit_store.get(client_ip)
                 if timestamps is None:
-                    timestamps = []
+                    # NB3: Use collections.deque for efficient, amortized O(1) popleft() pruning
+                    timestamps = collections.deque()
                     self.rate_limit_store[client_ip] = timestamps
                 
                 # Move to end of OrderedDict to mark as recently used (LRU Cache pattern)
                 self.rate_limit_store.move_to_end(client_ip)
                 
-                # Prune old timestamps in sliding window
-                prune_time = now - self.window_seconds
-                timestamps[:] = [t for t in timestamps if t > prune_time]
+                # NB3: Prune old timestamps in sliding window with O(1) popleft()
+                prune_time = now - window_seconds
+                while timestamps and timestamps[0] <= prune_time:
+                    timestamps.popleft()
                 
-                if len(timestamps) >= self.requests_limit:
-                    logger = logging.getLogger(__name__)
+                if len(timestamps) >= requests_limit:
                     masked_ip = mask_ip(client_ip)
-                    logger.warning(
+                    self.logger.warning(
                         f"Rate limit exceeded for IP {masked_ip} on path {path}. "
-                        f"Limit: {self.requests_limit}/{self.window_seconds}s"
+                        f"Limit: {requests_limit}/{window_seconds}s"
                     )
                     
                     earliest_time = timestamps[0] if timestamps else prune_time
-                    retry_after = max(1, int(self.window_seconds - (now - earliest_time)))
+                    retry_after = max(1, int(window_seconds - (now - earliest_time)))
                     
                     error_response = RateLimitError(
                         message="Rate limit exceeded. Please try again later.",
@@ -260,7 +294,7 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                         headers={"Retry-After": str(retry_after)}
                     )
                     
-                    response.headers["X-RateLimit-Limit"] = str(self.requests_limit)
+                    response.headers["X-RateLimit-Limit"] = str(requests_limit)
                     response.headers["X-RateLimit-Remaining"] = "0"
                     response.headers["X-RateLimit-Reset"] = str(retry_after)
                     return response
@@ -272,13 +306,13 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                 if len(self.rate_limit_store) > self.max_ips_stored:
                     self.rate_limit_store.popitem(last=False)
                 
-                remaining = max(0, self.requests_limit - len(timestamps))
+                remaining = max(0, requests_limit - len(timestamps))
                 earliest_time = timestamps[0] if timestamps else now
-                reset_after = max(0, int(self.window_seconds - (now - earliest_time)))
+                reset_after = max(0, int(window_seconds - (now - earliest_time)))
             
             response = await call_next(request)
             
-            response.headers["X-RateLimit-Limit"] = str(self.requests_limit)
+            response.headers["X-RateLimit-Limit"] = str(requests_limit)
             response.headers["X-RateLimit-Remaining"] = str(remaining)
             response.headers["X-RateLimit-Reset"] = str(reset_after)
             
