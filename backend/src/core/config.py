@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
     perplexity_api_key: str = Field(..., description="Perplexity API key", validation_alias="PERPLEXITY_API_KEY")
     groq_api_key: Optional[str] = Field(default=None, description="Groq API key", validation_alias="GROQ_API_KEY")
+    openrouter_api_key: Optional[str] = Field(default=None, description="OpenRouter API key", validation_alias="OPENROUTER_API_KEY")
 
     # Reddit Configuration
     reddit_client_id: Optional[str] = Field(default=None, description="Reddit Client ID", validation_alias="REDDIT_CLIENT_ID")
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
 
     # LLM Provider Configuration
     llm_provider: str = Field(
-        default="groq", description="LLM provider to use (groq or anthropic)", validation_alias="LLM_PROVIDER"
+        default="openrouter", description="LLM provider to use (openrouter, groq, or anthropic)", validation_alias="LLM_PROVIDER"
     )
 
     # Model Configuration
@@ -44,6 +45,9 @@ class Settings(BaseSettings):
     )
     groq_model: str = Field(
         default="llama-3.3-70b-versatile", description="Groq model to use", validation_alias="GROQ_MODEL"
+    )
+    openrouter_model: Optional[str] = Field(
+        default=None, description="OpenRouter model to use", validation_alias="OPENROUTER_MODEL"
     )
     perplexity_model: str = Field(
         default="sonar-pro", description="Perplexity model to use", validation_alias="PERPLEXITY_MODEL"
@@ -157,7 +161,7 @@ class Settings(BaseSettings):
     @validator("llm_provider")
     def validate_llm_provider(cls, v):
         """Validate LLM provider."""
-        valid_providers = ["groq", "anthropic"]
+        valid_providers = ["openrouter", "groq", "anthropic"]
         if v.lower() not in valid_providers:
             raise ValueError(f"LLM provider must be one of {valid_providers}")
         return v.lower()

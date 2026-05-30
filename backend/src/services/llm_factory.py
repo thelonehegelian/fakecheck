@@ -8,6 +8,7 @@ from typing import Union
 from src.core.config import Settings
 from src.services.anthropic_client import AnthropicClient
 from src.services.groq_client import GroqClient
+from src.services.openrouter_client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class LLMFactory:
     """Factory for creating LLM clients based on configuration."""
 
     @staticmethod
-    def create_client(settings: Settings) -> Union[AnthropicClient, GroqClient]:
+    def create_client(settings: Settings) -> Union[AnthropicClient, GroqClient, OpenRouterClient]:
         """
         Create an LLM client based on the configured provider.
 
@@ -24,14 +25,23 @@ class LLMFactory:
             settings: Application settings
 
         Returns:
-            LLM client instance (AnthropicClient or GroqClient)
+            LLM client instance (AnthropicClient, GroqClient, or OpenRouterClient)
 
         Raises:
             ValueError: If provider is invalid or API key is missing
         """
         provider = settings.llm_provider.lower()
 
-        if provider == "groq":
+        if provider == "openrouter":
+            if not settings.openrouter_api_key:
+                raise ValueError(
+                    "OPENROUTER_API_KEY is required when LLM_PROVIDER is set to 'openrouter'"
+                )
+            model_name = settings.openrouter_model or "google/gemini-3.5-flash"
+            logger.info("Using OpenRouter as LLM provider with model: %s", model_name)
+            return OpenRouterClient(settings)
+
+        elif provider == "groq":
             if not settings.groq_api_key:
                 raise ValueError(
                     "GROQ_API_KEY is required when LLM_PROVIDER is set to 'groq'"
@@ -51,7 +61,7 @@ class LLMFactory:
 
         else:
             raise ValueError(
-                f"Invalid LLM provider: {provider}. Must be 'groq' or 'anthropic'"
+                f"Invalid LLM provider: {provider}. Must be 'openrouter', 'groq', or 'anthropic'"
             )
 
     @staticmethod
@@ -79,7 +89,9 @@ class LLMFactory:
             Model name
         """
         provider = settings.llm_provider.lower()
-        if provider == "groq":
+        if provider == "openrouter":
+            return settings.openrouter_model or "google/gemini-3.5-flash"
+        elif provider == "groq":
             return settings.groq_model
         elif provider == "anthropic":
             return settings.anthropic_model
