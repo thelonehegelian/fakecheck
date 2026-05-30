@@ -5,6 +5,7 @@ Fast inference with Llama models.
 
 import json
 import logging
+import re
 from typing import Dict, Any, List, Optional
 
 from langchain_groq import ChatGroq
@@ -58,6 +59,74 @@ class GroqClient:
             request_timeout=self.timeout,
             max_retries=2,
         )
+
+    @staticmethod
+    def _normalize_unicode(text: str) -> str:
+        """
+        Normalize problematic Unicode characters that break JSON schema validation.
+
+        Args:
+            text: Text with potentially problematic Unicode characters
+
+        Returns:
+            Normalized text with safe ASCII equivalents
+        """
+        if not text:
+            return text
+
+        # Replace narrow no-break space (\u202f) with regular space
+        text = text.replace('\u202f', ' ')
+
+        # Replace en-dash (–) and em-dash (—) with regular hyphen
+        text = text.replace('–', '-').replace('—', '-')
+        text = text.replace('\u2013', '-').replace('\u2014', '-')
+
+        # Replace en-dash variant (\u2011) with hyphen
+        text = text.replace('\u2011', '-')
+
+        # Replace curly quotes with straight quotes
+        text = text.replace('"', '"').replace('"', '"')
+        text = text.replace(''', "'").replace(''', "'")
+        text = text.replace('\u201c', '"').replace('\u201d', '"')
+        text = text.replace('\u2018', "'").replace('\u2019', "'")
+
+        # Replace ellipsis character with three dots
+        text = text.replace('…', '...')
+        text = text.replace('\u2026', '...')
+
+        return text
+
+    def _normalize_dict_unicode(self, data: Any) -> Any:
+        """
+        Recursively normalize Unicode characters in dictionaries and lists.
+        Also fixes schema validation issues (e.g., bias_rating values).
+
+        Args:
+            data: Dictionary, list, or string to normalize
+
+        Returns:
+            Normalized data structure
+        """
+        if isinstance(data, str):
+            return self._normalize_unicode(data)
+        elif isinstance(data, dict):
+            normalized = {}
+            for key, value in data.items():
+                # Fix bias_rating field - convert invalid values to "unknown"
+                if key == "bias_rating" and isinstance(value, str):
+                    valid_bias_values = ["left", "center-left", "center", "center-right", "right", "unknown"]
+                    if value.lower() not in valid_bias_values:
+                        logger.warning(f"Invalid bias_rating '{value}', converting to 'unknown'")
+                        normalized[key] = "unknown"
+                    else:
+                        normalized[key] = value
+                else:
+                    normalized[key] = self._normalize_dict_unicode(value)
+            return normalized
+        elif isinstance(data, list):
+            return [self._normalize_dict_unicode(item) for item in data]
+        else:
+            return data
 
     async def analyze_news(
         self,
@@ -119,6 +188,9 @@ Citations: {citations}""",
             # Convert Pydantic model to dict for compatibility with existing code
             response_dict = result.model_dump(exclude={"timestamp", "citations"})
 
+            # Normalize Unicode characters that break JSON schema validation
+            response_dict = self._normalize_dict_unicode(response_dict)
+
             # Fix: Ensure fake_news_rating is an integer (Groq sometimes returns string)
             if "fake_news_rating" in response_dict and isinstance(response_dict["fake_news_rating"], str):
                 try:
@@ -136,6 +208,30 @@ Citations: {citations}""",
 
             return response_dict
 
+        except ExternalAPIError as e:
+            # Check if we extracted data from failed_generation
+            if hasattr(e, 'extracted_data') and e.extracted_data:
+                logger.warning("Using extracted data from failed Groq validation")
+                response_dict = e.extracted_data
+
+                # Fix fake_news_rating type
+                if "fake_news_rating" in response_dict and isinstance(response_dict["fake_news_rating"], str):
+                    try:
+                        response_dict["fake_news_rating"] = int(response_dict["fake_news_rating"])
+                    except ValueError:
+                        logger.warning(f"Could not convert rating to int: {response_dict['fake_news_rating']}")
+                        response_dict["fake_news_rating"] = 3
+
+                # Add metadata
+                response_dict["model_used"] = self.model
+
+                # Ensure citations are included
+                if citations:
+                    response_dict["citations"] = citations
+
+                return response_dict
+            else:
+                raise
         except Exception as e:
             self._handle_langchain_exception(e)
 
@@ -172,6 +268,7 @@ Citations: {citations}""",
             result: SourceCredibility = await chain.ainvoke({"prompt": prompt})
 
             response_dict = result.model_dump()
+            response_dict = self._normalize_dict_unicode(response_dict)
             response_dict["model_used"] = self.model
             return response_dict
 
@@ -220,6 +317,7 @@ Citations: {citations}""",
                 "summary": result.summary,
                 "model_used": self.model
             }
+            response_dict = self._normalize_dict_unicode(response_dict)
             return response_dict
 
         except Exception as e:
@@ -269,15 +367,102 @@ Citations: {citations}""",
             result = await chain.ainvoke({"prompt": prompt})
 
             response_dict = result.model_dump()
+            response_dict = self._normalize_dict_unicode(response_dict)
             response_dict["model_used"] = self.model
             return response_dict
 
         except Exception as e:
             self._handle_langchain_exception(e)
 
+    def _extract_failed_generation(self, error_msg: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract and parse the failed_generation field from Groq error messages.
+
+        Args:
+            error_msg: Error message from Groq
+
+        Returns:
+            Parsed JSON from failed_generation, or None if not found or unusable
+        """
+        try:
+            # Look for failed_generation in the error message
+            if "failed_generation" not in error_msg:
+                logger.debug("No failed_generation field found in error message")
+                return None
+
+            # Extract the JSON - it's after 'failed_generation': '...'
+            start_markers = ["'failed_generation': '", '"failed_generation": "']
+            json_str = None
+
+            for marker in start_markers:
+                if marker in error_msg:
+                    start_idx = error_msg.find(marker) + len(marker)
+                    # Find the matching closing quote (handle escaped quotes)
+                    end_idx = start_idx
+                    escape_count = 0
+                    while end_idx < len(error_msg):
+                        if error_msg[end_idx] == '\\':
+                            escape_count += 1
+                        elif error_msg[end_idx] in ['"', "'"] and escape_count % 2 == 0:
+                            json_str = error_msg[start_idx:end_idx]
+                            break
+                        else:
+                            escape_count = 0
+                        end_idx += 1
+                    if json_str:
+                        break
+
+            if not json_str:
+                logger.debug("Could not extract JSON string from failed_generation")
+                return None
+
+            # Clean up escaped characters
+            json_str = json_str.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+
+            # Parse the outer JSON (tool call format) using raw_decode to handle extra data
+            from json import JSONDecoder
+            decoder = JSONDecoder()
+
+            try:
+                # Use raw_decode to parse JSON and ignore extra data after it
+                tool_call, end_pos = decoder.raw_decode(json_str)
+
+                # Extract just the arguments
+                if isinstance(tool_call, dict) and "arguments" in tool_call:
+                    parsed = tool_call["arguments"]
+                else:
+                    parsed = tool_call
+
+                # Normalize Unicode characters
+                parsed = self._normalize_dict_unicode(parsed)
+
+                # Check if the extracted data is actually usable
+                # Required fields: fake_news_rating and verification_steps
+                if not parsed.get("fake_news_rating") or not parsed.get("verification_steps"):
+                    logger.warning(
+                        f"Extracted failed_generation has null/missing required fields: "
+                        f"fake_news_rating={parsed.get('fake_news_rating')}, "
+                        f"verification_steps={parsed.get('verification_steps')}"
+                    )
+                    return None
+
+                logger.info("Successfully extracted usable data from failed_generation")
+                return parsed
+
+            except json.JSONDecodeError as e:
+                logger.debug(f"JSON decode error: {str(e)}, trying alternative parsing")
+                # If raw_decode fails, the JSON might be incomplete or malformed
+                # Return None to fall back to raising the original error
+                return None
+
+        except Exception as ex:
+            logger.warning(f"Failed to extract failed_generation: {str(ex)}")
+            return None
+
     def _handle_langchain_exception(self, e: Exception) -> None:
         """
         Handle LangChain exceptions and map to application exceptions.
+        Attempts to extract failed_generation for tool_use_failed errors.
         """
         error_msg = str(e)
         logger.error(f"LangChain/Groq error: {error_msg}")
@@ -292,8 +477,22 @@ Citations: {citations}""",
                 timeout_seconds=self.settings.request_timeout,
             )
 
+        # Handle tool_use_failed with failed_generation extraction
+        if "tool_use_failed" in error_msg.lower():
+            failed_data = self._extract_failed_generation(error_msg)
+            if failed_data:
+                # Attach the extracted data to the exception
+                error = ExternalAPIError(
+                    f"Groq tool validation failed, but response was extracted",
+                    service="groq"
+                )
+                error.extracted_data = failed_data
+                raise error
+
+            raise ExternalAPIError(f"Groq API request failed: {error_msg}", service="groq")
+
         # Generic API errors
-        if "api_error" in error_msg.lower() or "400" in error_msg or "tool_use_failed" in error_msg.lower():
+        if "api_error" in error_msg.lower() or "400" in error_msg:
             raise ExternalAPIError(f"Groq API request failed: {error_msg}", service="groq")
 
         # Processing/Validation errors
