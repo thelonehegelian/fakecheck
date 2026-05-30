@@ -7,7 +7,7 @@ name = "fakecheck-v2"
 version = "2.0.0"
 description = "A fact-checking service using AI research and analysis"
 readme = "README.md"
-requires-python = ">=3.8.1"
+requires-python = ">=3.9.2"
 license = {text = "MIT"}
 authors = [
     {name = "FakeCheck Team", email = "team@fakecheck.ai"},
@@ -46,6 +46,7 @@ dependencies = [
     "langchain-openai>=0.1.25",
     "langchain-groq>=0.1.0",
     "praw>=7.7.1",
+    "openrouter>=0.9.1",
 ]
 
 [project.optional-dependencies]

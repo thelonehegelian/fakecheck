@@ -37,11 +37,15 @@ async def lifespan(app: FastAPI):
 
     # Validate configuration
     try:
-        # Test API keys are available based on provider
-        assert settings.perplexity_api_key, "PERPLEXITY_API_KEY is required"
+        # Test API keys are available based on provider/settings
+        if not settings.perplexica_enabled or settings.research_fallback_enabled:
+            assert settings.perplexity_api_key, "PERPLEXITY_API_KEY is required when Perplexica is disabled or fallback is enabled"
 
         llm_provider = settings.llm_provider.lower()
-        if llm_provider == "groq":
+        if llm_provider == "openrouter":
+            assert settings.openrouter_api_key, "OPENROUTER_API_KEY is required when using OpenRouter provider"
+            logger.info(f"Using OpenRouter as LLM provider with model: {settings.openrouter_model}")
+        elif llm_provider == "groq":
             assert settings.groq_api_key, "GROQ_API_KEY is required when using Groq provider"
             logger.info(f"Using Groq as LLM provider with model: {settings.groq_model}")
         elif llm_provider == "anthropic":
@@ -233,6 +237,9 @@ if settings.debug:
             "app_name": settings.app_name,
             "version": settings.app_version,
             "debug": settings.debug,
+            "llm_provider": settings.llm_provider,
+            "openrouter_model": settings.openrouter_model,
+            "groq_model": settings.groq_model,
             "anthropic_model": settings.anthropic_model,
             "perplexity_model": settings.perplexity_model,
             "cors_origins": settings.cors_origins,

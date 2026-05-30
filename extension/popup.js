@@ -168,7 +168,7 @@ function showResults(data) {
   const riskList = document.getElementById('riskFactors');
   if (riskFactors.length > 0) {
     riskSection.style.display = 'block';
-    riskList.innerHTML = riskFactors.map(factor => `<li>${factor}</li>`).join('');
+    riskList.innerHTML = riskFactors.map(factor => `<li>${escapeHtml(factor)}</li>`).join('');
   } else {
     riskSection.style.display = 'none';
   }
@@ -181,9 +181,10 @@ function showResults(data) {
     sourcesSection.style.display = 'block';
     sourcesList.innerHTML = citations.map((cite, i) => {
       if (typeof cite === 'string') {
-        return `<div class="source-item">${i + 1}. ${cite}</div>`;
+        return `<div class="source-item">${i + 1}. ${escapeHtml(cite)}</div>`;
       } else if (cite.url) {
-        return `<div class="source-item">${i + 1}. <a href="${cite.url}" target="_blank">${cite.title || 'Source'}</a></div>`;
+        const safeUrl = cite.url.startsWith('http') ? cite.url : '#';
+        return `<div class="source-item">${i + 1}. <a href="${safeUrl}" target="_blank">${escapeHtml(cite.title || 'Source')}</a></div>`;
       }
       return '';
     }).join('');
@@ -200,12 +201,13 @@ function showResults(data) {
     stepsList.innerHTML = steps.map((step, i) => {
       const complexity = step.complexity || 'medium';
       const complexityLabel = complexityMap[complexity.toLowerCase()] || complexity;
+      const stepText = step.step || step.description || (typeof step === 'string' ? step : '');
       const time = step.estimated_time || '';
       return `
         <div class="step-item">
-          <strong>${i + 1}. ${step.step || step.description || step}</strong>
-          <span class="step-complexity complexity-${complexity.toLowerCase()}">${complexityLabel}</span>
-          ${time ? `<div style="font-size: 12px; color: #666; margin-top: 4px;">⏱️ ${time}</div>` : ''}
+          <strong>${i + 1}. ${escapeHtml(stepText)}</strong>
+          <span class="step-complexity complexity-${complexity.toLowerCase()}">${escapeHtml(complexityLabel)}</span>
+          ${time ? `<div style="font-size: 12px; color: #666; margin-top: 4px;">⏱️ ${escapeHtml(time)}</div>` : ''}
         </div>
       `;
     }).join('');
