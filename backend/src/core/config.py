@@ -100,8 +100,8 @@ class Settings(BaseSettings):
         description="Log format",
     )
 
-    # Rate Limiting (future enhancement)
-    rate_limit_requests: int = Field(default=100, description="Requests per minute")
+    # Rate Limiting
+    rate_limit_requests: int = Field(default=100, description="Maximum requests per rate limit window")
     rate_limit_window: int = Field(
         default=60, description="Rate limit window in seconds"
     )

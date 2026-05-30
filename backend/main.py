@@ -8,6 +8,7 @@ import logging
 import sys
 import time
 import asyncio
+import collections
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
@@ -162,14 +163,38 @@ class ChromeExtensionAttestationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-class RateLimitingMiddleware(BaseHTTPMiddleware):
-    """Middleware to enforce rate limits on all key /v1/ API endpoints."""
+def mask_ip(ip: str) -> str:
+    """Mask client IP address for GDPR compliance."""
+    if not ip or ip == "unknown":
+        return ip
+    if ":" in ip:  # IPv6
+        parts = ip.split(":")
+        return ":".join(parts[:3]) + ":xxxx:xxxx:xxxx:xxxx:xxxx"
+    else:  # IPv4
+        parts = ip.split(".")
+        if len(parts) == 4:
+            return f"{parts[0]}.{parts[1]}.x.x"
+        return "xxx.xxx.xxx.xxx"
 
-    def __init__(self, app, requests_limit: int = None, window_seconds: int = None):
+
+class RateLimitingMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to enforce rate limits on all key /v1/ API endpoints.
+    
+    NOTE (Race Condition Trade-off): To prevent slow API calls (e.g. LLM fact-checking) from blocking
+    concurrent requests, the rate limit check and window validation are done atomically under
+    an asyncio.Lock, but downstream request processing (call_next) runs outside of the lock. 
+    This is a deliberate design choice to allow high API concurrency, with the minor trade-off 
+    that the X-RateLimit-Remaining header can occasionally be slightly stale under high concurrency.
+    """
+
+    def __init__(self, app, requests_limit: int = None, window_seconds: int = None, max_ips_stored: int = 2000):
         super().__init__(app)
-        self.requests_limit = requests_limit or settings.rate_limit_requests
-        self.window_seconds = window_seconds or settings.rate_limit_window
-        self.rate_limit_store: Dict[str, list] = {}
+        self.requests_limit = requests_limit if requests_limit is not None else settings.rate_limit_requests
+        self.window_seconds = window_seconds if window_seconds is not None else settings.rate_limit_window
+        # Use collections.OrderedDict for a strict, O(1) bounded LRU cache to prevent memory exhaustion DoS
+        self.rate_limit_store = collections.OrderedDict()
+        self.max_ips_stored = max_ips_stored
         self.lock = asyncio.Lock()
 
     async def dispatch(self, request: Request, call_next):
@@ -179,25 +204,45 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         is_api_route = path.startswith("/v1/") and path not in ["/v1/health", "/v1/info", "/v1"]
         
         if is_api_route:
-            forwarded_for = request.headers.get("x-forwarded-for")
-            if forwarded_for:
-                client_ip = forwarded_for.split(",")[0].strip()
-            else:
+            client_ip = None
+            
+            # Secure IP Resolution (B1): Only read X-Forwarded-For or X-Real-IP in hosted deployments
+            # where a fronting reverse proxy (like Railway's load balancer) is guaranteed to overwrite
+            # client-supplied headers. This completely prevents IP spoofing in local or untrusted environments.
+            if settings.deployment == "hosted":
+                real_ip = request.headers.get("x-real-ip")
+                if real_ip:
+                    client_ip = real_ip.strip()
+                else:
+                    forwarded_for = request.headers.get("x-forwarded-for")
+                    if forwarded_for:
+                        # Railway/proxies append client IP or overwrite X-Forwarded-For
+                        client_ip = forwarded_for.split(",")[0].strip()
+            
+            if not client_ip:
                 client_ip = request.client.host if request.client else "unknown"
 
             now = time.time()
             
             async with self.lock:
-                timestamps = self.rate_limit_store.setdefault(client_ip, [])
+                # Retrieve client's request history
+                timestamps = self.rate_limit_store.get(client_ip)
+                if timestamps is None:
+                    timestamps = []
+                    self.rate_limit_store[client_ip] = timestamps
                 
-                # Prune old timestamps
+                # Move to end of OrderedDict to mark as recently used (LRU Cache pattern)
+                self.rate_limit_store.move_to_end(client_ip)
+                
+                # Prune old timestamps in sliding window
                 prune_time = now - self.window_seconds
                 timestamps[:] = [t for t in timestamps if t > prune_time]
                 
                 if len(timestamps) >= self.requests_limit:
                     logger = logging.getLogger(__name__)
+                    masked_ip = mask_ip(client_ip)
                     logger.warning(
-                        f"Rate limit exceeded for IP {client_ip} on path {path}. "
+                        f"Rate limit exceeded for IP {masked_ip} on path {path}. "
                         f"Limit: {self.requests_limit}/{self.window_seconds}s"
                     )
                     
@@ -220,16 +265,12 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                     response.headers["X-RateLimit-Reset"] = str(retry_after)
                     return response
 
+                # Record the new request timestamp
                 timestamps.append(now)
                 
-                # Prevent memory leaks
-                if len(self.rate_limit_store) > 10000:
-                    pruned_store = {}
-                    for ip, ts_list in self.rate_limit_store.items():
-                        active_ts = [t for t in ts_list if t > prune_time]
-                        if active_ts:
-                            pruned_store[ip] = active_ts
-                    self.rate_limit_store = pruned_store
+                # Evict oldest entry if store exceeds max size (LRU Eviction)
+                if len(self.rate_limit_store) > self.max_ips_stored:
+                    self.rate_limit_store.popitem(last=False)
                 
                 remaining = max(0, self.requests_limit - len(timestamps))
                 earliest_time = timestamps[0] if timestamps else now
@@ -279,9 +320,9 @@ def create_app() -> FastAPI:
     )
 
     # Add custom middleware
-    app.add_middleware(RateLimitingMiddleware)
-    app.add_middleware(ChromeExtensionAttestationMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(ChromeExtensionAttestationMiddleware)
+    app.add_middleware(RateLimitingMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
 
     # Include routers
