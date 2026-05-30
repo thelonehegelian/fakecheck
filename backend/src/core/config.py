@@ -4,7 +4,7 @@ Configuration management for FakeCheck API.
 
 import os
 from typing import List, Optional, Union
-from pydantic import Field, validator
+from pydantic import Field, validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Server Configuration
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, description="Server port")
+
+    # Deployment Configuration
+    deployment: Optional[str] = Field(default=None, description="Deployment environment (e.g. hosted)", validation_alias="DEPLOYMENT")
 
     # External API Keys
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key", validation_alias="ANTHROPIC_API_KEY")
@@ -188,6 +191,14 @@ class Settings(BaseSettings):
         if v not in valid_modes:
             raise ValueError(f"Perplexica optimization mode must be one of {valid_modes}")
         return v
+
+    @model_validator(mode="after")
+    def resolve_deployment_settings(self) -> 'Settings':
+        """Automatically resolve perplexica and fallback settings based on deployment environment."""
+        if self.deployment == "hosted":
+            self.perplexica_enabled = True
+            self.research_fallback_enabled = False
+        return self
 
     def get_default_base_prompt(self) -> str:
         """Get the default base prompt."""

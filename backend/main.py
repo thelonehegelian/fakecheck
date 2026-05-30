@@ -38,8 +38,13 @@ async def lifespan(app: FastAPI):
     # Validate configuration
     try:
         # Test API keys are available based on provider/settings
-        if not settings.perplexica_enabled or settings.research_fallback_enabled:
-            assert settings.perplexity_api_key, "PERPLEXITY_API_KEY is required when Perplexica is disabled or fallback is enabled"
+        if settings.deployment == "hosted":
+            assert settings.perplexica_enabled, "Perplexica must be enabled when deployment is hosted"
+            assert not settings.research_fallback_enabled, "Perplexity fallback must be disabled when deployment is hosted"
+            logger.info("Hosted deployment validation: Perplexica is enabled, fallback is disabled.")
+        else:
+            if not settings.perplexica_enabled or settings.research_fallback_enabled:
+                assert settings.perplexity_api_key, "PERPLEXITY_API_KEY is required when Perplexica is disabled or fallback is enabled"
 
         llm_provider = settings.llm_provider.lower()
         if llm_provider == "openrouter":
@@ -237,6 +242,7 @@ if settings.debug:
             "app_name": settings.app_name,
             "version": settings.app_version,
             "debug": settings.debug,
+            "deployment": settings.deployment,
             "llm_provider": settings.llm_provider,
             "openrouter_model": settings.openrouter_model,
             "groq_model": settings.groq_model,
