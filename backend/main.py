@@ -115,6 +115,51 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class ChromeExtensionAttestationMiddleware(BaseHTTPMiddleware):
+    """Middleware to enforce origin and client attestation checks for hosted environments."""
+
+    async def dispatch(self, request: Request, call_next):
+        # We only protect the core fact-checking API routes
+        protected_paths = [
+            "/v1/check-fake",
+            "/v1/check-fake/batch",
+            "/v1/source-credibility",
+            "/v1/extract-claims"
+        ]
+
+        # Only enforce checks in hosted deployments
+        if settings.deployment == "hosted" and request.url.path in protected_paths:
+            origin = request.headers.get("origin", "")
+            user_agent = request.headers.get("user-agent", "").lower()
+
+            # 1. Enforce that Origin strictly starts with chrome-extension://
+            if not origin.startswith("chrome-extension://"):
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Blocked request to {request.url.path}: Missing or invalid Origin header '{origin}'"
+                )
+                error_response = FakeCheckError(
+                    "Forbidden: Request must originate from the official Chrome Extension",
+                    "FORBIDDEN_ORIGIN"
+                )
+                return JSONResponse(status_code=403, content=error_response.to_dict())
+
+            # 2. Block generic script user agents (curl, python-requests, httpx, etc.)
+            blocked_agents = ["curl", "python-requests", "httpx", "aiohttp", "go-http-client", "postman"]
+            if not user_agent or any(agent in user_agent for agent in blocked_agents):
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Blocked request to {request.url.path}: Suspicious User-Agent '{user_agent}'"
+                )
+                error_response = FakeCheckError(
+                    "Forbidden: Suspicious client signature detected",
+                    "FORBIDDEN_CLIENT"
+                )
+                return JSONResponse(status_code=403, content=error_response.to_dict())
+
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     """
     Create and configure the FastAPI application.
@@ -140,6 +185,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=r"^chrome-extension://.*",
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
@@ -147,6 +193,7 @@ def create_app() -> FastAPI:
     )
 
     # Add custom middleware
+    app.add_middleware(ChromeExtensionAttestationMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
 
