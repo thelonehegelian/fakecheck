@@ -6,6 +6,8 @@ This is the main entry point for the FakeCheck API v2.0.
 
 import logging
 import sys
+import time
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
@@ -18,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.core.config import get_settings
 from src.core.logging import setup_logging, with_correlation_id, generate_correlation_id
-from src.core.exceptions import FakeCheckError
+from src.core.exceptions import FakeCheckError, RateLimitError
 from src.api.routes.fact_check import router as fact_check_router
 
 # Initialize settings
@@ -160,6 +162,90 @@ class ChromeExtensionAttestationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class RateLimitingMiddleware(BaseHTTPMiddleware):
+    """Middleware to enforce rate limits on all key /v1/ API endpoints."""
+
+    def __init__(self, app, requests_limit: int = None, window_seconds: int = None):
+        super().__init__(app)
+        self.requests_limit = requests_limit or settings.rate_limit_requests
+        self.window_seconds = window_seconds or settings.rate_limit_window
+        self.rate_limit_store: Dict[str, list] = {}
+        self.lock = asyncio.Lock()
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        
+        # Rate limit all key v1 API endpoints except health and info
+        is_api_route = path.startswith("/v1/") and path not in ["/v1/health", "/v1/info", "/v1"]
+        
+        if is_api_route:
+            forwarded_for = request.headers.get("x-forwarded-for")
+            if forwarded_for:
+                client_ip = forwarded_for.split(",")[0].strip()
+            else:
+                client_ip = request.client.host if request.client else "unknown"
+
+            now = time.time()
+            
+            async with self.lock:
+                timestamps = self.rate_limit_store.setdefault(client_ip, [])
+                
+                # Prune old timestamps
+                prune_time = now - self.window_seconds
+                timestamps[:] = [t for t in timestamps if t > prune_time]
+                
+                if len(timestamps) >= self.requests_limit:
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        f"Rate limit exceeded for IP {client_ip} on path {path}. "
+                        f"Limit: {self.requests_limit}/{self.window_seconds}s"
+                    )
+                    
+                    earliest_time = timestamps[0] if timestamps else prune_time
+                    retry_after = max(1, int(self.window_seconds - (now - earliest_time)))
+                    
+                    error_response = RateLimitError(
+                        message="Rate limit exceeded. Please try again later.",
+                        retry_after=retry_after
+                    )
+                    
+                    response = JSONResponse(
+                        status_code=429,
+                        content=error_response.to_dict(),
+                        headers={"Retry-After": str(retry_after)}
+                    )
+                    
+                    response.headers["X-RateLimit-Limit"] = str(self.requests_limit)
+                    response.headers["X-RateLimit-Remaining"] = "0"
+                    response.headers["X-RateLimit-Reset"] = str(retry_after)
+                    return response
+
+                timestamps.append(now)
+                
+                # Prevent memory leaks
+                if len(self.rate_limit_store) > 10000:
+                    pruned_store = {}
+                    for ip, ts_list in self.rate_limit_store.items():
+                        active_ts = [t for t in ts_list if t > prune_time]
+                        if active_ts:
+                            pruned_store[ip] = active_ts
+                    self.rate_limit_store = pruned_store
+                
+                remaining = max(0, self.requests_limit - len(timestamps))
+                earliest_time = timestamps[0] if timestamps else now
+                reset_after = max(0, int(self.window_seconds - (now - earliest_time)))
+            
+            response = await call_next(request)
+            
+            response.headers["X-RateLimit-Limit"] = str(self.requests_limit)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(reset_after)
+            
+            return response
+            
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     """
     Create and configure the FastAPI application.
@@ -189,10 +275,11 @@ def create_app() -> FastAPI:
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
-        expose_headers=["X-Correlation-ID"],
+        expose_headers=["X-Correlation-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
     )
 
     # Add custom middleware
+    app.add_middleware(RateLimitingMiddleware)
     app.add_middleware(ChromeExtensionAttestationMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
