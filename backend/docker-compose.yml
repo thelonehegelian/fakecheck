@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # Perplexica - AI-powered search engine for research
+  perplexica:
+    image: itzcrazykns1337/perplexica:latest
+    container_name: fakecheck-perplexica
+    ports:
+      - "3000:3000"
+    volumes:
+      - perplexica-data:/home/perplexica/data
+      - perplexica-uploads:/home/perplexica/uploads
+      - ./config.toml:/home/perplexica/config.toml
+    restart: unless-stopped
+    networks:
+      - fakecheck-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # FakeCheck Backend - FastAPI service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fakecheck-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override Perplexica endpoint to use Docker network
+      - PERPLEXICA_ENDPOINT=http://perplexica:3000
+      - PERPLEXICA_ENABLED=true
+      - RESEARCH_FALLBACK_ENABLED=true
+    volumes:
+      # Mount source code for development (comment out for production)
+      - ./src:/app/src
+      - ./main.py:/app/main.py
+      # Persistent data
+      - backend-data:/app/data
+      - backend-logs:/app/logs
+    depends_on:
+      perplexica:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - fakecheck-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  fakecheck-network:
+    driver: bridge
+
+volumes:
+  perplexica-data:
+    driver: local
+  perplexica-uploads:
+    driver: local
+  backend-data:
+    driver: local
+  backend-logs:
+    driver: local

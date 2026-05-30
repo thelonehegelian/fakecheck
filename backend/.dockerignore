@@ -1,0 +1,72 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+dist
+build
+*.egg
+.venv
+venv
+env
+ENV
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+*.log
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+.agent
+
+# Environment
+.env
+.env.local
+*.env.backup
+
+# Documentation
+*.md
+!README.md
+docs
+
+# Test files
+tests
+test_*.py
+*_test.py
+run_tests.sh
+run_integration_tests.sh
+test_endpoints.sh
+scripts/test_runner.py
+
+# Bot files (not needed for main API)
+twitter-bot.py
+reddit_bot.py
+last_tweet_id.txt
+
+# Extension
+extension
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Misc
+*.bak
+*.tmp
+.cache

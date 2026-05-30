@@ -1,0 +1,14 @@
+[GENERAL]
+similarity_measure = "cosine"
+
+[OPENAI]
+api_key = ""
+
+[OLLAMA]
+api_url = "http://host.docker.internal:11434"
+
+[GROQ]
+api_key = ""
+
+[ANTHROPIC]
+api_key = ""
