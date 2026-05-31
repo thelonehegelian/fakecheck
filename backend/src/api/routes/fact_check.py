@@ -26,6 +26,7 @@ from src.models.requests import (
     BatchFactCheckRequest,
     SourceCredibilityRequest,
     ClaimExtractionRequest,
+    ImageFactCheckRequest,
 )
 from src.models.responses import (
     FactCheckResponse,
@@ -156,6 +157,79 @@ async def check_fake_news(
         # Following user rules: Never log complete errors
         error_response = FakeCheckError(
             "An unexpected error occurred during processing", "INTERNAL_ERROR"
+        )
+        return JSONResponse(content=error_response.to_dict(), status_code=500)
+
+
+@router.post(
+    "/check-image",
+    response_model=FactCheckResponse,
+    responses={
+        200: {"description": "Image fact-checking analysis completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid input"},
+        408: {"model": ErrorResponse, "description": "Request timeout"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+        502: {"model": ErrorResponse, "description": "External API error"},
+    },
+    summary="Fact-check claims from an uploaded image",
+    description="Analyze image content for accuracy using vision OCR and our AI research/fact-checking pipeline.",
+)
+async def check_image_claims(
+    request: ImageFactCheckRequest,
+    req: Request,
+    fact_check_service: FactCheckService = Depends(get_fact_check_service),
+):
+    """
+    Fact-check image claims using OCR and our AI research system.
+    """
+    try:
+        # Log request
+        log_request(req)
+
+        # Perform image fact-checking
+        result = await fact_check_service.check_image(request)
+
+        # Return successful response
+        return JSONResponse(
+            content=result,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+
+    except ValidationError as e:
+        logger.warning(f"Validation error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=400)
+
+    except TimeoutError as e:
+        logger.error(f"Timeout error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=408)
+
+    except RateLimitError as e:
+        logger.warning(f"Rate limit error: {e.message}")
+        headers = {}
+        if e.details.get("retry_after"):
+            headers["Retry-After"] = str(e.details["retry_after"])
+
+        return JSONResponse(content=e.to_dict(), status_code=429, headers=headers)
+
+    except ExternalAPIError as e:
+        logger.error(f"External API error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=502)
+
+    except ProcessingError as e:
+        logger.error(f"Processing error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=500)
+
+    except FakeCheckError as e:
+        logger.error(f"FakeCheck error: {e.message}")
+        return JSONResponse(content=e.to_dict(), status_code=500)
+
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        # Following user rules: Never log complete errors
+        error_response = FakeCheckError(
+            "An unexpected error occurred during image processing", "INTERNAL_ERROR"
         )
         return JSONResponse(content=error_response.to_dict(), status_code=500)
 
@@ -510,6 +584,7 @@ async def get_api_info(
             "description": "A fact-checking service using AI research and analysis",
             "endpoints": [
                 "/v1/check-fake",
+                "/v1/check-image",
                 "/v1/check-fake/batch",
                 "/v1/source-credibility",
                 "/v1/extract-claims",
@@ -544,6 +619,7 @@ async def api_root():
         "version": "1.0.0",
         "endpoints": {
             "fact_check": "/v1/check-fake",
+            "image_fact_check": "/v1/check-image",
             "batch_fact_check": "/v1/check-fake/batch",
             "source_credibility": "/v1/source-credibility",
             "extract_claims": "/v1/extract-claims",

@@ -77,7 +77,7 @@ class TestFakeCheckAPILive:
 
         # Validate structure
         assert data["name"] == "FakeCheck API"
-        assert data["version"] == "2.0.0"
+        assert data["version"] == "2.1.0"
         assert isinstance(data["endpoints"], list)
         assert "/v1/check-fake" in data["endpoints"]
 

@@ -4,7 +4,7 @@ Request models for FakeCheck API.
 
 from typing import Optional, List
 from pydantic import BaseModel, Field, validator
-from src.core.exceptions import EmptyContentError, ContentTooLargeError
+from src.core.exceptions import EmptyContentError, ContentTooLargeError, ValidationError
 
 
 class FactCheckRequest(BaseModel):
@@ -205,3 +205,57 @@ class HealthCheckRequest(BaseModel):
         """Pydantic configuration."""
 
         schema_extra = {"example": {"include_details": False}}
+
+
+class ImageFactCheckRequest(BaseModel):
+    """Request model for image fact-checking endpoint."""
+
+    image: str = Field(
+        ...,
+        description="Base64-encoded image data with standard data URL prefix",
+        example="data:image/png;base64,iVBORw0KGgo...",
+    )
+
+    # Optional parameters for customization
+    custom_prompt: Optional[str] = Field(
+        default=None,
+        description="Custom prompt to use for fact-checking",
+        max_length=1000,
+    )
+
+    priority: Optional[str] = Field(
+        default="normal",
+        description="Priority level for processing",
+        pattern="^(low|normal|high)$",
+    )
+
+    @validator("image")
+    def validate_image_content(cls, v):
+        """Validate base64 image content."""
+        if not v or not v.strip():
+            raise EmptyContentError("Image data cannot be empty")
+
+        v = v.strip()
+
+        # Check if it has a valid data URL prefix
+        if not v.startswith("data:image/"):
+            raise ValidationError("Invalid image format. Must start with 'data:image/' prefix")
+
+        # Check size: 5MB in base64 is roughly 6.7MB characters.
+        # Let's check length of characters. 7,000,000 chars is plenty and safe.
+        if len(v) > 7000000:
+            raise ContentTooLargeError(
+                "Image size is too large (max 5MB)", max_size=5000000, actual_size=len(v)
+            )
+
+        return v
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                "custom_prompt": None,
+                "priority": "normal",
+            }
+        }
+

@@ -24,7 +24,7 @@ from src.services.perplexica_client import PerplexicaClient
 from src.services.llm_factory import LLMFactory
 from src.services.source_credibility import SourceCredibilityService
 from src.services.claim_extraction import ClaimExtractionService
-from src.models.requests import FactCheckRequest, BatchFactCheckRequest
+from src.models.requests import FactCheckRequest, BatchFactCheckRequest, ImageFactCheckRequest
 from src.models.responses import FactCheckResponse, SourceCredibility, ExtractedClaim
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,64 @@ class FactCheckService:
         self.llm_client = LLMFactory.create_client(settings)
         self.source_credibility_service = SourceCredibilityService(settings)
         self.claim_extraction_service = ClaimExtractionService(settings)
+
+    async def check_image(self, request: ImageFactCheckRequest) -> Dict[str, Any]:
+        """
+        Perform fact-checking on an image by transcribing text/claims first.
+
+        Args:
+            request: Image fact-checking request
+
+        Returns:
+            Fact-checking results with transcription details
+
+        Raises:
+            ValidationError: When input validation or OCR fails
+            ProcessingError: When OCR or analysis fails
+        """
+        start_time = time.time()
+        try:
+            logger.info("Starting image fact-check request")
+
+            # Parse base64 and mime-type
+            match = re.match(r"^data:(image/[a-zA-Z0-9+.-]+);base64,(.+)$", request.image)
+            if not match:
+                raise ValidationError("Invalid base64 image data URL format")
+
+            mime_type = match.group(1)
+            base64_data = match.group(2)
+
+            # Perform vision OCR
+            logger.info(f"Extracting text from image of type {mime_type}")
+            extracted_text = await self.llm_client.extract_text_from_image(base64_data, mime_type)
+
+            if not extracted_text or len(extracted_text.strip()) < 5:
+                raise ValidationError("No clear readable text or claims could be extracted from this image. Please upload a clear image containing a text claim.")
+
+            logger.info(f"Extracted claim text: {extracted_text[:100]}...")
+
+            # Construct text fact-checking request
+            text_request = FactCheckRequest(
+                news=extracted_text,
+                custom_prompt=request.custom_prompt,
+                priority=request.priority or "normal"
+            )
+
+            # Run text fact checking
+            result = await self.check_news(text_request)
+
+            # Inject the image transcription and adjust overall processing time
+            result["image_transcription"] = extracted_text
+            result["processing_time_ms"] = int((time.time() - start_time) * 1000)
+
+            return result
+
+        except ValidationError as e:
+            logger.warning(f"Image validation failed: {e.message}")
+            raise
+        except Exception as e:
+            logger.error(f"Image fact-check failed: {str(e)}")
+            raise
 
     async def check_news(self, request: FactCheckRequest) -> Dict[str, Any]:
         """

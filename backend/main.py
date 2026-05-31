@@ -126,6 +126,7 @@ class ChromeExtensionAttestationMiddleware(BaseHTTPMiddleware):
         # We only protect the core fact-checking API routes
         protected_paths = [
             "/v1/check-fake",
+            "/v1/check-image",
             "/v1/check-fake/batch",
             "/v1/source-credibility",
             "/v1/extract-claims"

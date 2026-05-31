@@ -308,6 +308,66 @@ The JSON object must match this schema:
             logger.error("Failed to parse/validate VerifiabilityAnalysis: %s", str(e))
             raise ProcessingError(f"Failed to process verifiability analysis response: {str(e)}")
 
+    async def extract_text_from_image(self, base64_image: str, mime_type: str) -> str:
+        """
+        Extract text from a base64-encoded image using OpenRouter multimodal vision.
+
+        Args:
+            base64_image: Raw base64 string (no prefix)
+            mime_type: Mime type of the image (e.g. 'image/png')
+
+        Returns:
+            Extracted text content from the image
+        """
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert OCR and claim extraction system."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Please transcribe all readable text, claims, headings, or content in this image exactly as written. "
+                            "Output ONLY the transcribed text. Do not include any commentary, intro, explanation, or markdown wrapper. "
+                            "If there is no text in the image, reply with an empty response."
+                        )
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        try:
+            logger.info("Sending vision-based OCR request to OpenRouter using model: %s", self.model)
+            response = await asyncio.to_thread(
+                _call_openrouter,
+                api_key=self.api_key,
+                model=self.model,
+                messages=messages,
+                timeout=self.timeout
+            )
+
+            if not response or not response.choices:
+                raise ExternalAPIError("Empty response or choices from OpenRouter API", service="openrouter")
+
+            content = response.choices[0].message.content
+            if not content:
+                return ""
+
+            return content.strip()
+
+        except Exception as e:
+            self._handle_exception(e)
+            raise
+
     async def health_check(self) -> Dict[str, Any]:
         """
         Check if the OpenRouter API is accessible by running a fast prompt.
