@@ -6,6 +6,10 @@ This is the main entry point for the FakeCheck API v2.0.
 
 import logging
 import sys
+import time
+import asyncio
+import collections
+import ipaddress
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
@@ -18,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.core.config import get_settings
 from src.core.logging import setup_logging, with_correlation_id, generate_correlation_id
-from src.core.exceptions import FakeCheckError
+from src.core.exceptions import FakeCheckError, RateLimitError
 from src.api.routes.fact_check import router as fact_check_router
 
 # Initialize settings
@@ -160,6 +164,163 @@ class ChromeExtensionAttestationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+def mask_ip(ip: str) -> str:
+    """Mask client IP address for GDPR compliance."""
+    if not ip or ip == "unknown":
+        return ip
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if ip_obj.version == 6:
+            # Exploded IPv6 is guaranteed to be full 8 colon-separated groups (e.g. 2001:0db8:0000:...)
+            exploded = ip_obj.exploded
+            parts = exploded.split(":")
+            return ":".join(parts[:3]) + ":xxxx:xxxx:xxxx:xxxx:xxxx"
+        else:  # IPv4
+            parts = ip.split(".")
+            if len(parts) == 4:
+                return f"{parts[0]}.{parts[1]}.x.x"
+            return "xxx.xxx.xxx.xxx"
+    except Exception:
+        # Secure fallback if IP is invalid or cannot be parsed
+        if ":" in ip:
+            parts = ip.split(":")
+            return ":".join(parts[:2]) + ":xxxx"
+        parts = ip.split(".")
+        return f"{parts[0]}.x.x.x" if parts else "xxx.xxx.xxx.xxx"
+
+
+class RateLimitingMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to enforce rate limits on all key /v1/ API endpoints.
+    
+    NOTE (Race Condition Trade-off): To prevent slow API calls (e.g. LLM fact-checking) from blocking
+    concurrent requests, the rate limit check and window validation are done atomically under
+    an asyncio.Lock, but downstream request processing (call_next) runs outside of the lock. 
+    This is a deliberate design choice to allow high API concurrency, with the minor trade-off 
+    that the X-RateLimit-Remaining header can occasionally be slightly stale under high concurrency.
+    
+    NOTE (Single Worker Constraint): The asyncio.Lock and in-memory store are process-bound.
+    If deployed with multiple workers, state will be isolated per process. Centralized rate limiting
+    (e.g., via Redis) should be used if scaling horizontally.
+    """
+
+    def __init__(self, app, requests_limit: int = None, window_seconds: int = None, max_ips_stored: int = 2000):
+        super().__init__(app)
+        self.requests_limit_override = requests_limit
+        self.window_seconds_override = window_seconds
+        # Use collections.OrderedDict for a strict, O(1) bounded LRU cache to prevent memory exhaustion DoS
+        self.rate_limit_store = collections.OrderedDict()
+        self.max_ips_stored = max_ips_stored
+        self.lock = asyncio.Lock()
+        self.logger = logging.getLogger(__name__)
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        
+        # Rate limit all key v1 API endpoints except health and info
+        is_api_route = path.startswith("/v1/") and path not in ["/v1/health", "/v1/info", "/v1"]
+        
+        if is_api_route:
+            # B1: Read config dynamically in dispatch() to support hot-reload / dynamic mutability
+            requests_limit = self.requests_limit_override if self.requests_limit_override is not None else settings.rate_limit_requests
+            window_seconds = self.window_seconds_override if self.window_seconds_override is not None else settings.rate_limit_window
+            
+            # B2: requests_limit <= 0 indicates rate limiting is disabled, bypass check
+            if requests_limit <= 0:
+                return await call_next(request)
+            
+            client_ip = None
+            
+            # Secure IP Resolution (B1/NB2): Only read X-Forwarded-For or X-Real-IP in hosted deployments
+            # where a fronting reverse proxy (like Railway's load balancer) is guaranteed to overwrite
+            # client-supplied headers. This completely prevents IP spoofing in local or untrusted environments.
+            if settings.deployment == "hosted":
+                real_ip = request.headers.get("x-real-ip")
+                if real_ip:
+                    client_ip = real_ip.strip()
+                else:
+                    forwarded_for = request.headers.get("x-forwarded-for")
+                    if forwarded_for:
+                        # Railway/proxies append client IP or overwrite X-Forwarded-For
+                        client_ip = forwarded_for.split(",")[0].strip()
+            
+            # NB2: Sanitize / validate client IP string and fall back to client.host if invalid
+            if client_ip:
+                try:
+                    ipaddress.ip_address(client_ip)
+                except ValueError:
+                    # Invalid IP address in proxy header, fall back
+                    client_ip = None
+            
+            if not client_ip:
+                client_ip = request.client.host if request.client else "unknown"
+
+            now = time.time()
+            
+            async with self.lock:
+                # Retrieve client's request history
+                timestamps = self.rate_limit_store.get(client_ip)
+                if timestamps is None:
+                    # NB3: Use collections.deque for efficient, amortized O(1) popleft() pruning
+                    timestamps = collections.deque()
+                    self.rate_limit_store[client_ip] = timestamps
+                
+                # Move to end of OrderedDict to mark as recently used (LRU Cache pattern)
+                self.rate_limit_store.move_to_end(client_ip)
+                
+                # NB3: Prune old timestamps in sliding window with O(1) popleft()
+                prune_time = now - window_seconds
+                while timestamps and timestamps[0] <= prune_time:
+                    timestamps.popleft()
+                
+                if len(timestamps) >= requests_limit:
+                    masked_ip = mask_ip(client_ip)
+                    self.logger.warning(
+                        f"Rate limit exceeded for IP {masked_ip} on path {path}. "
+                        f"Limit: {requests_limit}/{window_seconds}s"
+                    )
+                    
+                    earliest_time = timestamps[0] if timestamps else prune_time
+                    retry_after = max(1, int(window_seconds - (now - earliest_time)))
+                    
+                    error_response = RateLimitError(
+                        message="Rate limit exceeded. Please try again later.",
+                        retry_after=retry_after
+                    )
+                    
+                    response = JSONResponse(
+                        status_code=429,
+                        content=error_response.to_dict(),
+                        headers={"Retry-After": str(retry_after)}
+                    )
+                    
+                    response.headers["X-RateLimit-Limit"] = str(requests_limit)
+                    response.headers["X-RateLimit-Remaining"] = "0"
+                    response.headers["X-RateLimit-Reset"] = str(retry_after)
+                    return response
+
+                # Record the new request timestamp
+                timestamps.append(now)
+                
+                # Evict oldest entry if store exceeds max size (LRU Eviction)
+                if len(self.rate_limit_store) > self.max_ips_stored:
+                    self.rate_limit_store.popitem(last=False)
+                
+                remaining = max(0, requests_limit - len(timestamps))
+                earliest_time = timestamps[0] if timestamps else now
+                reset_after = max(0, int(window_seconds - (now - earliest_time)))
+            
+            response = await call_next(request)
+            
+            response.headers["X-RateLimit-Limit"] = str(requests_limit)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(reset_after)
+            
+            return response
+            
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     """
     Create and configure the FastAPI application.
@@ -189,12 +350,13 @@ def create_app() -> FastAPI:
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
-        expose_headers=["X-Correlation-ID"],
+        expose_headers=["X-Correlation-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
     )
 
     # Add custom middleware
-    app.add_middleware(ChromeExtensionAttestationMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(ChromeExtensionAttestationMiddleware)
+    app.add_middleware(RateLimitingMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
 
     # Include routers
