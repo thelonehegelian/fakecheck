@@ -28,13 +28,37 @@
       </div>
     </div>
 
-    <div class="input-section">
+    <div class="tabs-container">
+      <button class="tab-btn active" id="tabText">✍️ Text Claim</button>
+      <button class="tab-btn" id="tabImage">🖼️ Image Claim</button>
+    </div>
+
+    <div class="input-section" id="textInputSection">
       <textarea
         id="textInput"
         placeholder="Paste text to fact-check, or right-click selected text on any webpage..."
         rows="4"
       ></textarea>
       <button id="checkBtn" class="btn-primary">Check This Claim</button>
+    </div>
+
+    <div class="input-section hidden" id="imageInputSection">
+      <div id="imageDropZone" class="image-drop-zone">
+        <span class="drop-icon">📤</span>
+        <span class="drop-text">Drag & drop image here, paste, or click to browse</span>
+        <span class="drop-subtext">Supports PNG, JPEG, WebP, GIF (Max 5MB)</span>
+        <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
+      </div>
+
+      <div id="imagePreviewContainer" class="image-preview-container hidden">
+        <div class="image-preview-wrapper">
+          <img id="imagePreview" src="" alt="Selected claim" />
+          <button id="clearImageBtn" class="clear-image-btn" title="Remove image">×</button>
+        </div>
+        <p id="imageFileInfo" class="image-file-info"></p>
+      </div>
+
+      <button id="checkImageBtn" class="btn-primary" disabled>Check This Image</button>
     </div>
 
     <div id="loading" class="loading hidden">
@@ -46,6 +70,11 @@
       <div class="result-header">
         <div class="rating-badge" id="ratingBadge"></div>
         <div class="confidence" id="confidence"></div>
+      </div>
+
+      <div class="result-section hidden" id="transcriptionSection">
+        <h3>Extracted Text from Image</h3>
+        <div id="transcriptionText" class="transcription-text"></div>
       </div>
 
       <div class="result-section">

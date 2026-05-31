@@ -502,6 +502,12 @@ Citations: {citations}""",
         # Fallback
         raise ProcessingError(f"Unexpected error: {error_msg}")
 
+    async def extract_text_from_image(self, base64_image: str, mime_type: str) -> str:
+        """
+        Extract text from a base64-encoded image (Stub, vision not supported on Groq).
+        """
+        raise ProcessingError("Groq client does not currently support image OCR. Please use OpenRouter or Anthropic providers for image fact-checking.")
+
     async def health_check(self) -> Dict[str, Any]:
         """
         Check if the Groq API is accessible.

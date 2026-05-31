@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fakecheck-v2"
-version = "2.0.0"
+version = "2.1.0"
 description = "A fact-checking service using AI research and analysis"
 readme = "README.md"
 requires-python = ">=3.9.2"

@@ -279,6 +279,47 @@ Citations: {citations}""",
         except Exception as e:
             self._handle_langchain_exception(e)
 
+    async def extract_text_from_image(self, base64_image: str, mime_type: str) -> str:
+        """
+        Extract text from a base64-encoded image using Anthropic Claude vision.
+
+        Args:
+            base64_image: Raw base64 string (no prefix)
+            mime_type: Mime type of the image (e.g. 'image/png')
+
+        Returns:
+            Extracted text content from the image
+        """
+        from langchain_core.messages import HumanMessage
+
+        message = HumanMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": (
+                        "Please transcribe all readable text, claims, headings, or content in this image. "
+                        "Output ONLY the transcribed text. Do not include any commentary, intro, explanation, or markdown wrapper. "
+                        "If there is no text in the image, reply with an empty response."
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{base64_image}"
+                    },
+                },
+            ]
+        )
+
+        try:
+            logger.info("Sending vision-based OCR request to Anthropic Claude (LangChain)")
+            response = await self.llm.ainvoke([message])
+            extracted_text = response.content.strip()
+            logger.info("Successfully extracted text from image using Anthropic Claude")
+            return extracted_text
+        except Exception as e:
+            self._handle_langchain_exception(e)
+
     def _handle_langchain_exception(self, e: Exception) -> None:
         """
         Handle LangChain exceptions and map to application exceptions.

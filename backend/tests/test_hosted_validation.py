@@ -175,3 +175,67 @@ async def test_chrome_extension_attestation_middleware_enforced():
         settings.deployment = orig_deployment
         settings.perplexica_enabled = orig_perplexica
         settings.research_fallback_enabled = orig_fallback
+
+
+@pytest.mark.asyncio
+async def test_chrome_extension_attestation_middleware_enforced_for_check_image():
+    """Test that ChromeExtensionAttestationMiddleware blocks non-extension requests in hosted deployment for /v1/check-image."""
+    settings = get_settings()
+
+    # Save original settings
+    orig_deployment = settings.deployment
+    orig_perplexica = settings.perplexica_enabled
+    orig_fallback = settings.research_fallback_enabled
+
+    try:
+        # Mock deployment as hosted
+        settings.deployment = "hosted"
+        settings.perplexica_enabled = True
+        settings.research_fallback_enabled = False
+
+        app = create_app()
+
+        import httpx
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Request with no Origin header should be blocked
+            response = await client.post(
+                "/v1/check-image",
+                json={
+                    "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                }
+            )
+            assert response.status_code == 403
+            assert response.json()["error_code"] == "FORBIDDEN_ORIGIN"
+
+            # 2. Request with invalid Origin header should be blocked
+            response = await client.post(
+                "/v1/check-image",
+                json={
+                    "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                },
+                headers={"Origin": "https://malicious-web.com"}
+            )
+            assert response.status_code == 403
+            assert response.json()["error_code"] == "FORBIDDEN_ORIGIN"
+
+            # 3. Request with valid Origin but blocked/suspicious user agent should be blocked
+            response = await client.post(
+                "/v1/check-image",
+                json={
+                    "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                },
+                headers={
+                    "Origin": "chrome-extension://mgijgjcddggcjplglapehbchepmghbme",
+                    "User-Agent": "curl/7.68.0"
+                }
+            )
+            assert response.status_code == 403
+            assert response.json()["error_code"] == "FORBIDDEN_CLIENT"
+
+    finally:
+        # Restore original settings
+        settings.deployment = orig_deployment
+        settings.perplexica_enabled = orig_perplexica
+        settings.research_fallback_enabled = orig_fallback
+

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FakeCheck - AI Fact Checker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Instantly fact-check claims on any webpage using AI-powered analysis",
   "permissions": [
     "activeTab",

@@ -163,6 +163,10 @@ class FactCheckResponse(BaseModel):
         default=None, description="Risk factors that might indicate misinformation"
     )
 
+    image_transcription: Optional[str] = Field(
+        default=None, description="Transcribed text from the uploaded image"
+    )
+
     timestamp: Optional[datetime] = Field(
         default=None, description="Timestamp when the analysis was completed"
     )
