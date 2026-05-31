@@ -7,6 +7,12 @@ const error = document.getElementById('error');
 const errorMessage = document.getElementById('errorMessage');
 const retryBtn = document.getElementById('retryBtn');
 const newCheckBtn = document.getElementById('newCheckBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const settingsError = document.getElementById('settingsError');
+const apiUrlInput = document.getElementById('apiUrlInput');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 
 // Rating mapping
 const ratingMap = {
@@ -111,6 +117,70 @@ document.addEventListener('DOMContentLoaded', () => {
       checkBtn.click();
     }
   });
+
+  // Settings toggle
+  settingsBtn.addEventListener('click', () => {
+    chrome.storage.local.get(['apiUrl'], (data) => {
+      apiUrlInput.value = data.apiUrl || 'https://backend-production-2f0a.up.railway.app';
+      settingsPanel.classList.toggle('hidden');
+      clearSettingsError();
+    });
+  });
+
+  // Save Settings
+  saveSettingsBtn.addEventListener('click', () => {
+    let url = apiUrlInput.value.trim();
+    if (!url) {
+      url = 'https://backend-production-2f0a.up.railway.app';
+    }
+    // Remove trailing slash if present
+    if (url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+
+    // Strictly validate URL to mitigate security risks (B2)
+    try {
+      const parsedUrl = new URL(url);
+      const protocol = parsedUrl.protocol;
+      const hostname = parsedUrl.hostname;
+
+      if (protocol === 'http:') {
+        // Restrict HTTP only to localhost and 127.0.0.1 loopbacks
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          showSettingsError('HTTP is only allowed for localhost development. Use HTTPS for remote backends.');
+          return;
+        }
+      } else if (protocol !== 'https:') {
+        showSettingsError('Only HTTP (localhost only) or HTTPS protocols are supported.');
+        return;
+      }
+    } catch (e) {
+      showSettingsError('Please enter a valid absolute URL (e.g. http://localhost:8000 or https://your-app.up.railway.app).');
+      return;
+    }
+
+    chrome.storage.local.set({ apiUrl: url }, () => {
+      settingsPanel.classList.add('hidden');
+      clearSettingsError();
+    });
+  });
+
+  // Close Settings
+  closeSettingsBtn.addEventListener('click', () => {
+    settingsPanel.classList.add('hidden');
+    clearSettingsError();
+  });
+
+  // Helpers to manage settings error display
+  function showSettingsError(message) {
+    settingsError.textContent = message;
+    settingsError.classList.remove('hidden');
+  }
+
+  function clearSettingsError() {
+    settingsError.textContent = '';
+    settingsError.classList.add('hidden');
+  }
 });
 
 // Reset UI to initial state
@@ -220,8 +290,10 @@ function showResults(data) {
 async function checkClaim(text) {
   showLoading();
 
+  let baseUrl = DEFAULT_API_URL;
   try {
-    const response = await fetch('http://localhost:8000/v1/check-fake', {
+    baseUrl = await getApiUrl();
+    const response = await fetch(`${baseUrl}/v1/check-fake`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -247,7 +319,7 @@ async function checkClaim(text) {
     let message = 'Failed to check claim. ';
 
     if (err.message.includes('Failed to fetch')) {
-      message += 'Make sure the FakeCheck API is running on http://localhost:8000';
+      message += `Make sure the FakeCheck API is running on ${baseUrl}`;
     } else {
       message += err.message;
     }
